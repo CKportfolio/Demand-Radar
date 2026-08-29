@@ -1,0 +1,212 @@
+{
+  "name": "MR04 - Ad Relevance Filter",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mr04-filter-ads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        112,
+        -80
+      ],
+      "id": "ca01a706-5295-4ed9-8da7-daea0e3591a1",
+      "name": "MR04 Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\n\nconst projectId = String(\n  body.projectId ??\n  body.project_id ??\n  body.id ??\n  'default'\n);\n\nconst batchSizeRaw = Number(body.batchSize ?? body.batch_size ?? 40);\nconst batchSize = Math.max(10, Math.min(60, Number.isFinite(batchSizeRaw) ? batchSizeRaw : 40));\n\nlet rawAds =\n  body.ads ??\n  body.candidates ??\n  body.records ??\n  [];\n\nif (!Array.isArray(rawAds)) rawAds = [rawAds];\n\nif (!rawAds.length) {\n  throw new Error('MR04 requires body.ads[] (or candidates[] / records[]).');\n}\n\nconst projectContext =\n  body.projectContext ??\n  body.relevanceContext ??\n  body.context ??\n  {\n    projectName: body.projectName ?? body.project_name ?? null,\n    brief: body.brief ?? null,\n    seedPlans:\n      body.queryPlan?.seedPlans ??\n      body.seedPlans ??\n      body.plan?.seedPlans ??\n      []\n  };\n\nfunction cleanText(value, max = 1600) {\n  if (value === null || value === undefined) return '';\n  let s = String(value)\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n  if (s.length > max) s = s.slice(0, max);\n  return s;\n}\n\nfunction getBody(ad) {\n  const bodyCandidate =\n    ad.adContent ??\n    ad.ad_content ??\n    ad.ad_body_text ??\n    ad.adText ??\n    ad.ad_text ??\n    ad.body ??\n    ad.snapshot?.body?.text ??\n    ad.snapshot?.body?.markup ??\n    '';\n  return cleanText(bodyCandidate, 1800);\n}\n\nfunction getTitle(ad) {\n  return cleanText(\n    ad.adTitle ??\n    ad.ad_title ??\n    ad.headline ??\n    ad.title ??\n    ad.snapshot?.title ??\n    '',\n    350\n  );\n}\n\nfunction getDescription(ad) {\n  return cleanText(\n    ad.adLinkDescription ??\n    ad.ad_link_description ??\n    ad.link_description ??\n    ad.description ??\n    ad.snapshot?.link_description ??\n    '',\n    500\n  );\n}\n\nfunction getPageName(ad) {\n  return cleanText(\n    ad.pageName ??\n    ad.page_name ??\n    ad.brand_name ??\n    ad.snapshot?.page_name ??\n    '',\n    250\n  );\n}\n\nfunction getLinkUrl(ad) {\n  return cleanText(\n    ad.adLinkUrl ??\n    ad.ad_link_url ??\n    ad.link_url ??\n    ad.cta_url ??\n    ad.snapshot?.link_url ??\n    '',\n    700\n  );\n}\n\nfunction getId(ad) {\n  const value =\n    ad.adArchiveId ??\n    ad.ad_archive_id ??\n    ad.externalAdId ??\n    ad.external_ad_id ??\n    ad.metaAdId ??\n    ad.meta_ad_id ??\n    ad.id;\n  return value === null || value === undefined ? '' : String(value).trim();\n}\n\nfunction getMatch(ad) {\n  return {\n    queryText: cleanText(\n      ad.queryText ??\n      ad.query_text ??\n      ad.sourceQuery ??\n      ad.source_query ??\n      ad.query ??\n      '',\n      200\n    ),\n    queryType: cleanText(ad.queryType ?? ad.query_type ?? '', 50),\n    seedText: cleanText(ad.seedText ?? ad.seed_text ?? '', 350),\n    concept: cleanText(ad.concept ?? ad.seedConcept ?? ad.seed_concept ?? '', 250)\n  };\n}\n\nconst byId = new Map();\n\nfor (const ad of rawAds) {\n  if (!ad || typeof ad !== 'object') continue;\n\n  const adArchiveId = getId(ad);\n  if (!adArchiveId) continue;\n\n  const match = getMatch(ad);\n\n  if (!byId.has(adArchiveId)) {\n    byId.set(adArchiveId, {\n      adArchiveId,\n      localId: String(ad.localId ?? ad.local_id ?? ad.rowId ?? ad.row_id ?? ''),\n      pageName: getPageName(ad),\n      body: getBody(ad),\n      title: getTitle(ad),\n      description: getDescription(ad),\n      linkUrl: getLinkUrl(ad),\n      startDate: ad.startDate ?? ad.start_date ?? ad.ad_delivery_start_time ?? null,\n      endDate: ad.endDate ?? ad.end_date ?? ad.ad_delivery_stop_time ?? null,\n      isActive: ad.isActive ?? ad.is_active ?? null,\n      matches: [match]\n    });\n  } else {\n    const existing = byId.get(adArchiveId);\n    const key = JSON.stringify(match);\n    if (!existing.matches.some(m => JSON.stringify(m) === key) && existing.matches.length < 8) {\n      existing.matches.push(match);\n    }\n    if (!existing.body) existing.body = getBody(ad);\n    if (!existing.title) existing.title = getTitle(ad);\n    if (!existing.pageName) existing.pageName = getPageName(ad);\n    if (!existing.description) existing.description = getDescription(ad);\n    if (!existing.linkUrl) existing.linkUrl = getLinkUrl(ad);\n  }\n}\n\nconst ads = [...byId.values()];\n\nif (!ads.length) {\n  throw new Error('MR04 did not find any usable ad ID. Every ad must have ad_archive_id/adArchiveId/external_ad_id/id.');\n}\n\nreturn [{\n  json: {\n    projectId,\n    filterVersion: 'mr04-ad-relevance-v1',\n    batchSize,\n    projectContext,\n    ads\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        -80
+      ],
+      "id": "8a161d82-5358-4bd4-a1b6-09744061c386",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $json;\nconst ads = Array.isArray(source.ads) ? source.ads : [];\nconst batchSize = source.batchSize ?? 40;\nconst totalBatches = Math.ceil(ads.length / batchSize);\n\nconst result = [];\n\nfor (let i = 0; i < totalBatches; i++) {\n  result.push({\n    json: {\n      projectId: source.projectId,\n      filterVersion: source.filterVersion,\n      batchIndex: i,\n      totalBatches,\n      projectContext: source.projectContext,\n      ads: ads.slice(i * batchSize, (i + 1) * batchSize)\n    }\n  });\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -80
+      ],
+      "id": "4e0a714d-a699-41b4-87fa-5e5c6998333c",
+      "name": "Create Batches"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Jesteś modułem MR04 AD RELEVANCE FILTER w systemie Demand Radar.\n\nCEL\nOceń, czy KAŻDA reklama rzeczywiście dotyczy rynku/tematu badanego projektu.\nNie oceniasz jeszcze jakości reklamy, skuteczności, długości emisji ani kategorii BALON / ROKUJĄCA / EVERGREEN.\nMR04 ma tylko oddzielić reklamy tematycznie użyteczne od śmieciowych dopasowań wyszukiwarki.\n\nNAJWAŻNIEJSZA ZASADA\nTo, że reklama została znaleziona przez dane query, NIE znaczy, że jest relewantna.\nQuery jest tylko informacją pomocniczą.\nPatrz przede wszystkim na faktyczny temat/ofertę reklamy: pageName, body, title, description, linkUrl.\nPorównuj reklamę z CAŁYM kontekstem projektu, nie tylko z jednym seedem/query.\n\nDECYZJE\nKEEP:\n- reklama jasno należy do badanego rynku;\n- albo jest sensownie przyległa i stanowi wartościowy sygnał popytu dla projektu.\n\nREJECT:\n- faktyczny temat/oferta jest wyraźnie poza zakresem projektu;\n- reklama trafiła tylko przez przypadkową zbieżność słów;\n- jest oczywistym szumem niezwiązanym z badanym rynkiem.\n\nREVIEW:\n- danych jest za mało;\n- znaczenie jest niejednoznaczne;\n- nie da się bezpiecznie zdecydować.\nWątpliwość = REVIEW, nigdy agresywne REJECT.\n\nWAŻNE\n- Nie odrzucaj reklamy tylko dlatego, że ma inny format produktu lub trochę inną grupę odbiorców, jeśli problem/potrzeba jest nadal istotna dla projektu.\n- Nie daj się zwieść nazwie query.\n- Nie daj się zwieść pojedynczemu słowu typu „psychologia”, „rozwój”, „emocje”, „relacje”, jeśli reszta reklamy dotyczy zupełnie innej branży.\n- Reklama o odchudzaniu, kosmetyce, inwestowaniu, nieruchomościach, ecommerce itd. powinna być REJECT, jeśli badany projekt tego nie obejmuje.\n- Każdy adArchiveId z wejścia ma wystąpić w odpowiedzi dokładnie raz.\n- Nie zmieniaj adArchiveId.\n\nDOZWOLONE reasonCode\nDla KEEP:\n- IN_SCOPE\n- ADJACENT_IN_SCOPE\n\nDla REJECT:\n- OUT_OF_SCOPE_TOPIC\n- ACCIDENTAL_KEYWORD_MATCH\n- NON_MARKET_NOISE\n\nDla REVIEW:\n- INSUFFICIENT_DATA\n- AMBIGUOUS\n\nconfidence:\n0-100. Wysokie confidence tylko przy jasnym rozpoznaniu.\n\nKONTEKST PROJEKTU\n{{ JSON.stringify($json.projectContext) }}\n\nBATCH\nbatchIndex: {{ $json.batchIndex }}\ntotalBatches: {{ $json.totalBatches }}\n\nREKLAMY\n{{ JSON.stringify($json.ads) }}\n\nZWRÓĆ WYŁĄCZNIE DANE ZGODNE ZE SCHEMATEM OUTPUT PARSERA.\nDla każdej reklamy podaj:\nadArchiveId, decision, confidence, reasonCode, reason.\nreason ma być krótki i konkretny, maksymalnie jedno zdanie.",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        816,
+        -80
+      ],
+      "id": "21fbae46-cff9-45b4-80c9-569855b18c53",
+      "name": "Classify Relevance"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5",
+          "mode": "list",
+          "cachedResultName": "gpt-5"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        752,
+        160
+      ],
+      "id": "20d496b6-5dec-48de-b2dc-ae34580cce60",
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"projectId\": \"project-1\",\n  \"filterVersion\": \"mr04-ad-relevance-v1\",\n  \"batchIndex\": 0,\n  \"decisions\": [\n    {\n      \"adArchiveId\": \"1234567890\",\n      \"decision\": \"REJECT\",\n      \"confidence\": 98,\n      \"reasonCode\": \"OUT_OF_SCOPE_TOPIC\",\n      \"reason\": \"Reklama dotyczy inwestowania giełdowego, a nie badanego rynku.\"\n    },\n    {\n      \"adArchiveId\": \"9876543210\",\n      \"decision\": \"KEEP\",\n      \"confidence\": 95,\n      \"reasonCode\": \"IN_SCOPE\",\n      \"reason\": \"Reklama promuje usługę bezpośrednio związaną z problemami badanymi w projekcie.\"\n    }\n  ]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        976,
+        160
+      ],
+      "id": "431d7cde-a644-413a-9e5c-79143b0f74d4",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "const outputs = $input.all();\nconst sourceBatches = $('Create Batches').all();\n\nconst expected = new Map();\nfor (const item of sourceBatches) {\n  const ads = Array.isArray(item.json.ads) ? item.json.ads : [];\n  for (const ad of ads) {\n    expected.set(String(ad.adArchiveId), ad);\n  }\n}\n\nconst allowedDecision = new Set(['KEEP', 'REJECT', 'REVIEW']);\nconst allowedReason = new Set([\n  'IN_SCOPE',\n  'ADJACENT_IN_SCOPE',\n  'OUT_OF_SCOPE_TOPIC',\n  'ACCIDENTAL_KEYWORD_MATCH',\n  'NON_MARKET_NOISE',\n  'INSUFFICIENT_DATA',\n  'AMBIGUOUS'\n]);\n\nconst decisionsById = new Map();\n\nfor (const item of outputs) {\n  const payload = item.json.output ?? item.json;\n  const decisions = Array.isArray(payload.decisions) ? payload.decisions : [];\n\n  for (const d of decisions) {\n    const id = String(d.adArchiveId ?? '').trim();\n    if (!id || !expected.has(id) || decisionsById.has(id)) continue;\n\n    let decision = String(d.decision ?? 'REVIEW').toUpperCase();\n    if (!allowedDecision.has(decision)) decision = 'REVIEW';\n\n    let confidence = Number(d.confidence);\n    if (!Number.isFinite(confidence)) confidence = 0;\n    confidence = Math.max(0, Math.min(100, Math.round(confidence)));\n\n    let reasonCode = String(d.reasonCode ?? 'AMBIGUOUS').toUpperCase();\n    if (!allowedReason.has(reasonCode)) reasonCode = 'AMBIGUOUS';\n\n    // Bezpiecznik: niespójne powody nie mogą prowadzić do automatycznego odrzutu.\n    if (\n      decision === 'REJECT' &&\n      !['OUT_OF_SCOPE_TOPIC', 'ACCIDENTAL_KEYWORD_MATCH', 'NON_MARKET_NOISE'].includes(reasonCode)\n    ) {\n      decision = 'REVIEW';\n      reasonCode = 'AMBIGUOUS';\n      confidence = Math.min(confidence, 50);\n    }\n\n    if (\n      decision === 'KEEP' &&\n      !['IN_SCOPE', 'ADJACENT_IN_SCOPE'].includes(reasonCode)\n    ) {\n      decision = 'REVIEW';\n      reasonCode = 'AMBIGUOUS';\n      confidence = Math.min(confidence, 50);\n    }\n\n    decisionsById.set(id, {\n      adArchiveId: id,\n      decision,\n      confidence,\n      reasonCode,\n      reason: String(d.reason ?? '').replace(/\\s+/g, ' ').trim().slice(0, 400)\n    });\n  }\n}\n\n// Nigdy nie odrzucamy reklamy tylko dlatego, że model pominął ją w odpowiedzi.\nfor (const id of expected.keys()) {\n  if (!decisionsById.has(id)) {\n    decisionsById.set(id, {\n      adArchiveId: id,\n      decision: 'REVIEW',\n      confidence: 0,\n      reasonCode: 'INSUFFICIENT_DATA',\n      reason: 'Brak kompletnej decyzji modelu; wymagana weryfikacja.'\n    });\n  }\n}\n\nconst decisions = [...decisionsById.values()];\n\nconst summary = {\n  total: decisions.length,\n  keep: decisions.filter(d => d.decision === 'KEEP').length,\n  reject: decisions.filter(d => d.decision === 'REJECT').length,\n  review: decisions.filter(d => d.decision === 'REVIEW').length\n};\n\nconst firstBatch = sourceBatches[0]?.json ?? {};\n\nreturn [{\n  json: {\n    ok: true,\n    projectId: String(firstBatch.projectId ?? 'default'),\n    filterVersion: String(firstBatch.filterVersion ?? 'mr04-ad-relevance-v1'),\n    processedAt: new Date().toISOString(),\n    summary,\n    decisions\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        -80
+      ],
+      "id": "57dc95c1-1697-4005-b317-60f78d15dcba",
+      "name": "Validate & Finalize"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1360,
+        -80
+      ],
+      "id": "14d8f140-ba91-42c1-bef5-7483089fee07",
+      "name": "Return Decisions"
+    }
+  ],
+  "connections": {
+    "MR04 Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Create Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Batches": {
+      "main": [
+        [
+          {
+            "node": "Classify Relevance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify Relevance",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classify Relevance",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Relevance": {
+      "main": [
+        [
+          {
+            "node": "Validate & Finalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Finalize": {
+      "main": [
+        [
+          {
+            "node": "Return Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "nodeGroups": []
+}

@@ -1,0 +1,243 @@
+{
+  "name": "MR-02 Revise Discovery Plan",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mr02-revise-plan",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook_mr02",
+      "name": "Webhook MR-02",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1088,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst errors = [];\nif (!body.requestId) errors.push('requestId is required');\nif (!body.projectId) errors.push('projectId is required');\nif (!body.userInstruction) errors.push('userInstruction is required');\nif (!Array.isArray(body.availableDiscoveryCapabilities) || body.availableDiscoveryCapabilities.length === 0) errors.push('availableDiscoveryCapabilities must be a non-empty array');\nconst plan = body.currentPlan;\nif (plan === undefined || plan === null) {\n  errors.push('currentPlan is required');\n} else if (typeof plan !== 'object' || Array.isArray(plan)) {\n  errors.push('currentPlan must be an object');\n} else {\n  if (plan.schemaVersion !== '1.1') errors.push('currentPlan.schemaVersion must equal 1.1');\n  if (!Array.isArray(plan.seedQueries)) errors.push('currentPlan.seedQueries must be an array');\n  if (!Array.isArray(plan.discoveryStrategies)) errors.push('currentPlan.discoveryStrategies must be an array');\n}\nif (errors.length > 0) return [{ json: { error: { code: 'INVALID_INPUT', message: errors.join('; ') } } }];\nreturn [{ json: { ok: true, request: body } }];"
+      },
+      "id": "validate_mr02",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.ok }}",
+              "operation": "isTrue"
+            }
+          ],
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "if_valid_mr02",
+      "name": "Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=# MR-02 — Revise Discovery Plan — prompt do n8n\n\n```javascript\n={{ `You are the revision engine for Market Demand Radar.\n\nYour task is to revise an EXISTING DiscoveryPlanV1 according to the user's instruction.\n\nReturn ONLY a complete JSON object matching the attached DiscoveryPlanV1 schema exactly.\n\nCORE RULE\n\ncurrentPlan is the source of truth.\n\nThis is an EDIT operation, not a new generation.\n\nApply userInstruction while changing the smallest reasonable portion of currentPlan necessary to satisfy the request.\n\nDo not regenerate the whole plan unnecessarily.\nDo not rewrite unrelated sections merely to make them sound different.\nDo not discard useful existing discovery directions unless the user explicitly asks you to remove them.\n\nIf currentPlan is missing or invalid, the workflow should reject the request before it reaches you.\nNever compensate for a missing currentPlan by inventing a new plan.\n\nPRODUCT LOGIC\n\nMarket Demand Radar is still performing DISCOVERY.\n\nThe system does NOT yet know with certainty:\n\nwhat product should be created,\nwhich topic is strongest,\nwho the winning buyer is,\nwhich customer problem has the strongest demand,\nwhich market segment will ultimately be selected.\n\nA revision must preserve this exploratory nature.\n\nDo not convert a user instruction into an unsupported conclusion about what sells.\n\nThe creator's competencies define the credible capability boundary.\nThey do NOT automatically define the buyer.\n\nFor example:\n\nIf the creator is an interior designer, a request to broaden toward consumers may justify adding searches related to homeowners, people planning renovations, people furnishing apartments, landlords or other plausible buyers.\n\nIt does NOT justify drifting into unrelated ecommerce categories such as generic home products, furniture retail, consumer electronics or popular brands.\n\nEvery addition must remain plausibly connected to the creator's stated competencies, formats, constraints and exclusions.\n\nREVISION BEHAVIOR\n\nInterpret userInstruction precisely.\n\nMake only the changes reasonably required by it.\n\nExamples:\n\nIf the user says:\n\"Do not focus only on professionals. Include individual consumers.\"\n\nThen:\n\nexpand plausible consumer audiences,\nadd relevant consumer-oriented search probes,\nexpand taxonomy where useful,\nretain useful professional-market probes,\nkeep everything inside the creator's capability domain.\n\nDo NOT replace the entire plan.\n\nIf the user says:\n\"Add more independent market-entry probes.\"\n\nThen add genuinely different discovery directions rather than synonyms of existing queries.\n\nIf the user says:\n\"You are too focused on one topic.\"\n\nThen broaden the relevant taxonomy and seed queries while preserving useful existing branches.\n\nSTABLE ID RULES — MANDATORY\n\nStable IDs are critical.\n\nFor every editable object:\n\nunchanged logical item → preserve its existing id,\nedited but logically same item → preserve its existing id,\ngenuinely new item → create a new unique id,\nremoved item → remove it,\nnever reuse an existing id for a different concept.\n\nDo NOT regenerate IDs across the whole plan.\n\nExamples:\n\nAn existing seed query whose wording is slightly improved keeps the same id.\n\nA completely new seed query gets a new id.\n\nAn unchanged taxonomy item keeps its id.\n\nA new taxonomy branch gets a new id.\n\nSEED QUERY RULES\n\nSeed queries are SEARCH PROBES.\n\nThey are not statements of proven demand.\n\nFor existing seed queries:\n\npreserve their existing source value.\n\nFor newly added seed queries:\n\nsource must be \"LLM_REVISION\",\nenabled must be true unless the user's instruction explicitly requires otherwise.\n\nPrefer meaningful new discovery probes over large numbers of near-duplicate variations.\n\nQueries should make sense as literal META_AD_LIBRARY keyword searches.\n\nUse a useful mix where relevant:\n\nbroad domain probes,\nproblem-oriented probes,\naudience-oriented probes,\ncommercial-intent / product-format probes.\n\nDo not generate generic queries outside the creator's domain.\n\nPRESERVATION RULE\n\nUnless userInstruction requires a change, preserve:\n\ncapabilityUnderstanding,\nmarketBreadth,\ncandidateProductTypes,\nuseful initialTaxonomy items,\nexisting discoveryStrategies,\nexisting seedQueries,\nqueryExpansionPolicy,\nopenUnknowns,\nconstraints,\ndiscoveryLimits,\nsaturationCriteria.\n\nA normal revision should look like a meaningful DIFF from currentPlan, not a newly generated unrelated document.\n\nEXECUTABILITY\n\nOnly create or preserve discoveryStrategies whose source and mode are present in availableDiscoveryCapabilities.\n\nNever invent unsupported discovery methods.\n\nFor the current MVP, the executable capability may be limited to:\n\nMETA_AD_LIBRARY / KEYWORD_SEARCH.\n\nTRACTION LANGUAGE\n\nNever claim or imply confirmed:\n\nsales,\nrevenue,\nROAS,\nprofitability,\nconversion rate.\n\nUse concepts such as:\n\ntraction signal,\ndemand signal,\nprobable traction,\nscaling signal.\n\nOUTPUT CONTRACT\n\nschemaVersion must remain \"1.1\".\n\nReturn EVERY required field defined by DiscoveryPlanV1.\n\nDo not add fields that are not present in the schema.\n\nDo NOT copy requestId or projectId into DiscoveryPlanV1 unless the schema explicitly contains them.\n\nEvery newly created object requiring an id must receive a unique id.\n\nchangeSummary must be a NON-EMPTY STRING.\n\nchangeSummary must briefly and accurately describe the meaningful changes made in this revision.\n\nchangeSummary must NOT be an array.\n\nwarnings must always be present.\n\nUse an empty array for warnings when there is no genuine warning.\n\nReturn JSON only.\n\nNo Markdown.\nNo code fence.\nNo explanation outside the JSON.\n\nQUALITY CHECK BEFORE RETURNING\n\nBefore returning, internally verify:\n\nDid I actually follow userInstruction?\n\nDid I preserve unrelated parts of currentPlan?\n\nDid unchanged logical items keep their IDs?\n\nDid new items receive genuinely new IDs?\n\nDid I accidentally regenerate the entire plan?\n\nDid I remain inside the creator's capability and domain boundary?\n\nDid I accidentally drift into generic unrelated markets?\n\nAre newly added seed queries genuine discovery probes rather than claims about demand?\n\nCan every discoveryStrategy actually be executed using availableDiscoveryCapabilities?\n\nIs changeSummary a non-empty string accurately describing the revision?\n\nIs every required DiscoveryPlanV1 field present?\n\nDid I introduce any field not allowed by the schema?\n\nRequest payload:\n\n${JSON.stringify($json.request, null, 2)}` }}\n```\n",
+        "hasOutputParser": true
+      },
+      "id": "chain_mr02",
+      "name": "Basic LLM Chain MR-02",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        -320,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1"
+        },
+        "options": {}
+      },
+      "id": "chat_model_mr02",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -272,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"title\": \"DiscoveryPlanV1\",\n  \"description\": \"A single version of a market-discovery plan. Describes HOW the system will search for advertising traction signals for a given creator capability — never a confirmed product, sale, or ROAS claim. This schema is intentionally flattened (no $ref/$defs) because n8n's Structured Output Parser node does not support $ref resolution. Keep it flat if you edit it.\",\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"schemaVersion\",\n    \"capabilityUnderstanding\",\n    \"marketBreadth\",\n    \"seedQueries\",\n    \"candidateProductTypes\",\n    \"initialTaxonomy\",\n    \"discoveryStrategies\",\n    \"queryExpansionPolicy\",\n    \"openUnknowns\",\n    \"constraints\",\n    \"discoveryLimits\",\n    \"saturationCriteria\",\n    \"changeSummary\",\n    \"warnings\"\n  ],\n  \"properties\": {\n    \"schemaVersion\": {\n      \"type\": \"string\",\n      \"const\": \"1.1\",\n      \"description\": \"Contract version. Bump only with a matching change here and in n8n prompts/workflows.\"\n    },\n    \"capabilityUnderstanding\": {\n      \"type\": \"string\",\n      \"minLength\": 1,\n      \"description\": \"The model's restated understanding of what the creator can produce, in its own words. Never a product recommendation — a reflection check so the user can confirm the model understood the brief.\"\n    },\n    \"marketBreadth\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\"country\", \"language\", \"notes\"],\n      \"properties\": {\n        \"country\": { \"type\": \"string\", \"minLength\": 1, \"description\": \"ISO-ish country label, e.g. 'PL'.\" },\n        \"language\": { \"type\": \"string\", \"minLength\": 1, \"description\": \"Primary language for ad search, e.g. 'pl'.\" },\n        \"notes\": { \"type\": \"string\", \"description\": \"Free-text caveats about market scope, e.g. diaspora audiences, bilingual segments. Empty string if none.\" }\n      }\n    },\n    \"seedQueries\": {\n      \"type\": \"array\",\n      \"minItems\": 1,\n      \"description\": \"Initial search probes to run against ad libraries/search engines. These are FIRST PROBES to explore, not confirmed product hypotheses.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\"id\", \"query\", \"rationale\", \"priority\", \"enabled\", \"source\"],\n        \"properties\": {\n          \"id\": { \"type\": \"string\", \"minLength\": 1, \"description\": \"Stable identifier, e.g. 'sq-1'. Must be unique within this plan.\" },\n          \"query\": { \"type\": \"string\", \"minLength\": 1, \"description\": \"The literal search string/phrase to try.\" },\n          \"rationale\": { \"type\": \"string\", \"minLength\": 1, \"description\": \"Why this probe was chosen, tied back to the stated capability.\" },\n          \"priority\": { \"type\": \"string\", \"enum\": [\"high\", \"medium\", \"low\"], \"description\": \"Suggested exploration order.\" },\n          \"enabled\": { \"type\": \"boolean\", \"description\": \"Whether this query is currently active. Lets a user switch a query off without deleting it.\" },\n          \"source\": { \"type\": \"string\", \"enum\": [\"LLM_INITIAL\", \"LLM_REVISION\", \"USER\", \"DISCOVERY_EXPANSION\"], \"description\": \"Where this query came from. DISCOVERY_EXPANSION is reserved for a future iterative-discovery loop and is not produced by MR-01/MR-02 yet.\" }\n        }\n      }\n    },\n    \"candidateProductTypes\": {\n      \"type\": \"array\",\n      \"minItems\": 1,\n      \"description\": \"Plausible product/offer formats worth watching for, drawn from the creator's declared available formats. Not a recommendation to build any of them.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\"id\", \"label\", \"description\"],\n        \"properties\": {\n          \"id\": { \"type\": \"string\", \"minLength\": 1 },\n          \"label\": { \"type\": \"string\", \"minLength\": 1, \"description\": \"Short name, e.g. 'Self-paced online course'.\" },\n          \"description\": { \"type\": \"string\", \"minLength\": 1 }\n        }\n      }\n    },\n    \"initialTaxonomy\": {\n      \"type\": \"array\",\n      \"minItems\": 1,\n      \"description\": \"A starter set of topic/segment categories to organize discovered signals under. Expected to evolve across plan revisions.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\"id\", \"label\", \"description\"],\n        \"properties\": {\n          \"id\": { \"type\": \"string\", \"minLength\": 1 },\n          \"label\": { \"type\": \"string\", \"minLength\": 1 },\n          \"description\": { \"type\": \"string\", \"minLength\": 1 }\n        }\n      }\n    },\n    \"discoveryStrategies\": {\n      \"type\": \"array\",\n      \"minItems\": 1,\n      \"description\": \"Executable search strategies, each tied to a discovery capability the current collector runtime actually supports (see availableDiscoveryCapabilities in the MR-01 request). Describes HOW to search, not WHO was found — no results are collected yet at plan time. Do not propose a source/mode combination the runtime cannot execute.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\"id\", \"source\", \"mode\", \"label\", \"description\"],\n        \"properties\": {\n          \"id\": { \"type\": \"string\", \"minLength\": 1 },\n          \"source\": { \"type\": \"string\", \"enum\": [\"META_AD_LIBRARY\"], \"description\": \"Which discovery source this strategy runs against. Only sources the current collector implements are valid; extending this list requires a schemaVersion bump.\" },\n          \"mode\": { \"type\": \"string\", \"enum\": [\"KEYWORD_SEARCH\"], \"description\": \"Which mode of that source this strategy uses. Only modes the current collector implements are valid; extending this list requires a schemaVersion bump.\" },\n          \"label\": { \"type\": \"string\", \"minLength\": 1 },\n          \"description\": { \"type\": \"string\", \"minLength\": 1 }\n        }\n      }\n    },\n    \"queryExpansionPolicy\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\"whenToBroaden\", \"whenToNarrow\", \"maxExpansionRounds\"],\n      \"description\": \"Rules for how future discovery rounds should widen or narrow the taxonomy/seed queries as results come in.\",\n      \"properties\": {\n        \"whenToBroaden\": { \"type\": \"string\", \"minLength\": 1, \"description\": \"Condition under which the next round should widen scope.\" },\n        \"whenToNarrow\": { \"type\": \"string\", \"minLength\": 1, \"description\": \"Condition under which the next round should narrow scope.\" },\n        \"maxExpansionRounds\": { \"type\": \"integer\", \"minimum\": 0, \"description\": \"Suggested cap on automatic expansion rounds before requiring human review.\" }\n      }\n    },\n    \"openUnknowns\": {\n      \"type\": \"array\",\n      \"description\": \"Explicit list of things the plan does NOT know yet and should not guess at (e.g. exact audience age range, willingness to pay). Keeps the model honest about gaps.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\"id\", \"question\"],\n        \"properties\": {\n          \"id\": { \"type\": \"string\", \"minLength\": 1 },\n          \"question\": { \"type\": \"string\", \"minLength\": 1 }\n        }\n      }\n    },\n    \"constraints\": {\n      \"type\": \"array\",\n      \"description\": \"Hard constraints carried over from the project brief that discovery must respect (e.g. exclusions, compliance limits).\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\"id\", \"description\"],\n        \"properties\": {\n          \"id\": { \"type\": \"string\", \"minLength\": 1 },\n          \"description\": { \"type\": \"string\", \"minLength\": 1 }\n        }\n      }\n    },\n    \"discoveryLimits\": {\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n      \"required\": [\"maxQueriesPerRun\", \"maxAdsPerQuery\", \"maxScrollsPerQuery\", \"stopAfterScrollsWithoutNewAds\", \"maxRuntimeMinutes\"],\n      \"description\": \"Operational guardrails passed to the Playwright collector so a run cannot runaway. Modeled on what the collector actually iterates over (query -> ads via scrolling a results list), not on advertiser counts.\",\n      \"properties\": {\n        \"maxQueriesPerRun\": { \"type\": \"integer\", \"minimum\": 1, \"description\": \"Maximum number of enabled seedQueries the scheduler will run in a single DiscoveryRun.\" },\n        \"maxAdsPerQuery\": { \"type\": \"integer\", \"minimum\": 1, \"description\": \"Maximum number of ads collected for any single query before moving on.\" },\n        \"maxScrollsPerQuery\": { \"type\": \"integer\", \"minimum\": 1, \"description\": \"Hard cap on result-list scroll/pagination steps per query, independent of ad counting.\" },\n        \"stopAfterScrollsWithoutNewAds\": { \"type\": \"integer\", \"minimum\": 1, \"description\": \"Stop scrolling a query early after this many consecutive scrolls that yielded no new ads.\" },\n        \"maxRuntimeMinutes\": { \"type\": \"integer\", \"minimum\": 1, \"description\": \"Wall-clock cap for the whole DiscoveryRun.\" }\n      }\n    },\n    \"saturationCriteria\": {\n      \"type\": \"array\",\n      \"minItems\": 1,\n      \"description\": \"Conditions under which a discovery round should be considered 'done for now' (diminishing returns), so the collector/human knows when to stop rather than searching indefinitely.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\"id\", \"description\"],\n        \"properties\": {\n          \"id\": { \"type\": \"string\", \"minLength\": 1 },\n          \"description\": { \"type\": \"string\", \"minLength\": 1 }\n        }\n      }\n    },\n    \"changeSummary\": {\n      \"type\": \"string\",\n      \"description\": \"A short human-readable summary of what changed from the previous plan version and why. Required (schema-enforced) on every version: MR-01 (initial LLM generation) sets it to \\\"\\\"; MR-02 (LLM revision) sets a non-empty summary; a manual revision gets its changeSummary generated mechanically by the app from a structural diff against the parent version (never an LLM call), optionally with the user's own short note appended.\"\n    },\n    \"warnings\": {\n      \"type\": \"array\",\n      \"description\": \"Non-fatal notices about the revision or generation, e.g. 'user instruction conflicted with declared constraint X and was only partially applied'. Required (schema-enforced); empty array if none.\",\n      \"items\": { \"type\": \"string\", \"minLength\": 1 }\n    }\n  }\n}\n"
+      },
+      "id": "parser_mr02",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        -160,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const REQUIRED_TOP_LEVEL = [\n  'schemaVersion',\n  'capabilityUnderstanding',\n  'marketBreadth',\n  'seedQueries',\n  'candidateProductTypes',\n  'initialTaxonomy',\n  'discoveryStrategies',\n  'queryExpansionPolicy',\n  'openUnknowns',\n  'constraints',\n  'discoveryLimits',\n  'saturationCriteria',\n  'changeSummary',\n  'warnings',\n];\n\nconst ALLOWED_TOP_LEVEL = new Set(REQUIRED_TOP_LEVEL);\n\n// Parse JSON only if value is actually a JSON-looking string.\nfunction parseIfJson(value) {\n  if (value === undefined || value === null) {\n    return null;\n  }\n\n  if (typeof value === 'object') {\n    return value;\n  }\n\n  if (typeof value !== 'string') {\n    return null;\n  }\n\n  const text = value.trim();\n\n  if (!text.startsWith('{')) {\n    return null;\n  }\n\n  try {\n    return JSON.parse(text);\n  } catch {\n    return null;\n  }\n}\n\n// n8n / LangChain versions may expose structured result\n// under output, text, or directly as $json.\n// We only unwrap transport envelopes.\n// We NEVER invent or repair plan fields here.\nconst candidates = [\n  $json.output,\n  $json.text,\n  $json,\n];\n\nlet plan = null;\n\nfor (const candidate of candidates) {\n  let parsed = parseIfJson(candidate);\n\n  // Handle one additional known envelope level.\n  if (\n    parsed &&\n    typeof parsed === 'object' &&\n    !Array.isArray(parsed)\n  ) {\n    if (parsed.output !== undefined) {\n      const nested = parseIfJson(parsed.output);\n      if (nested) parsed = nested;\n    } else if (parsed.text !== undefined) {\n      const nested = parseIfJson(parsed.text);\n      if (nested) parsed = nested;\n    }\n  }\n\n  if (\n    parsed &&\n    typeof parsed === 'object' &&\n    !Array.isArray(parsed)\n  ) {\n    // Do not accept \"some object\".\n    // It must at least contain ALL required DiscoveryPlan top-level fields.\n    const hasAllRequired = REQUIRED_TOP_LEVEL.every(\n      key => Object.prototype.hasOwnProperty.call(parsed, key)\n    );\n\n    if (hasAllRequired) {\n      plan = parsed;\n      break;\n    }\n  }\n}\n\nif (!plan) {\n  throw new Error(\n    'Structured LLM output is not a complete DiscoveryPlanV1 object.'\n  );\n}\n\nif (plan.schemaVersion !== '1.1') {\n  throw new Error(\n    `Invalid DiscoveryPlan schemaVersion: ${plan.schemaVersion}`\n  );\n}\n\n// Reject obvious transport/request metadata or other unexpected\n// top-level properties.\n// Full nested-schema validation is the Structured Output Parser's job.\nconst extraFields = Object.keys(plan).filter(\n  key => !ALLOWED_TOP_LEVEL.has(key)\n);\n\nif (extraFields.length > 0) {\n  throw new Error(\n    `Unexpected DiscoveryPlanV1 top-level fields: ${extraFields.join(', ')}`\n  );\n}\n\nif (!Array.isArray(plan.seedQueries)) {\n  throw new Error('DiscoveryPlanV1.seedQueries must be an array.');\n}\n\nif (!Array.isArray(plan.discoveryStrategies)) {\n  throw new Error('DiscoveryPlanV1.discoveryStrategies must be an array.');\n}\n\nif (!Array.isArray(plan.warnings)) {\n  throw new Error('DiscoveryPlanV1.warnings must be an array.');\n}\n\nif (typeof plan.changeSummary !== 'string') {\n  throw new Error('DiscoveryPlanV1.changeSummary must be a string.');\n}\n\n// Important: return the PLAN itself.\n// Respond to Webhook should therefore receive direct JSON,\n// not { text: \"{...}\" }.\nreturn [\n  {\n    json: plan,\n  },\n];"
+      },
+      "id": "normalize_mr02",
+      "name": "Normalize Structured Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -64,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "respond_ok_mr02",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        96,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond_err_mr02",
+      "name": "Respond Invalid Input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -416,
+        304
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook MR-02": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain MR-02",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain MR-02",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Basic LLM Chain MR-02",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain MR-02": {
+      "main": [
+        [
+          {
+            "node": "Normalize Structured Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Structured Plan": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": []
+}

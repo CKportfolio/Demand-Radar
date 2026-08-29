@@ -1,0 +1,13 @@
+{
+  "projectId": "portfolio-example",
+  "brief": {
+    "creatorCapabilities": [
+      "prowadzenie szkoleń online",
+      "zarządzanie zespołem",
+      "komunikacja w pracy"
+    ],
+    "country": "PL",
+    "language": "pl",
+    "notes": "Przykładowy brief demonstracyjny bez danych realnego użytkownika."
+  }
+}

@@ -1,0 +1,4046 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Market Demand Radar — Workbench</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111318;
+      --panel: #191d24;
+      --panel2: #202631;
+      --line: #343b48;
+      --text: #eef2f7;
+      --muted: #99a4b3;
+      --good: #46c37b;
+      --bad: #ff6b6b;
+      --warn: #f0b44d;
+      --accent: #7ba7ff;
+      --info: #84b6ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(17, 19, 24, 0.96);
+      border-bottom: 1px solid var(--line);
+      padding: 14px 20px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .grow { flex: 1; }
+
+    .tab-nav {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      padding-top: 6px;
+      border-top: 1px solid var(--line);
+    }
+
+    .tab-btn {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #2a3140;
+      color: var(--text);
+      padding: 8px 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .tab-btn.active {
+      border-color: #6f9aff;
+      background: #1f3d6f;
+      color: #eaf2ff;
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(360px, 520px) minmax(500px, 1fr);
+      gap: 16px;
+      padding: 16px;
+    }
+
+    @media (max-width: 1000px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .panel-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    h2, h3 { margin: 0 0 12px; }
+    h2 { font-size: 17px; }
+    h3 { font-size: 14px; color: var(--muted); margin-top: 18px; }
+
+    label {
+      display: block;
+      margin: 10px 0 5px;
+      color: var(--muted);
+    }
+
+    input, textarea, select, button {
+      font: inherit;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      background: #10141a;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+    }
+
+    textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    .short { min-height: 58px; }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .checks {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 12px;
+      margin: 8px 0;
+    }
+
+    .checks label {
+      color: var(--text);
+      margin: 0;
+      display: flex;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .checks input { width: auto; }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 14px;
+      cursor: pointer;
+      background: var(--accent);
+      color: #071021;
+      font-weight: 700;
+    }
+
+    button.secondary {
+      background: #303846;
+      color: var(--text);
+    }
+
+    button.danger {
+      background: #573035;
+      color: #ffd9d9;
+    }
+
+    button.success {
+      background: #2f7d52;
+      color: #e9fff2;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .good .dot { background: var(--good); }
+    .bad .dot { background: var(--bad); }
+    .warn .dot { background: var(--warn); }
+
+    .muted { color: var(--muted); }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: #0d1015;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 12px;
+      max-height: 58vh;
+      overflow: auto;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 7px;
+    }
+
+    .contract {
+      margin: 10px 0;
+      padding: 9px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+
+    .contract.good {
+      border-color: #2d7049;
+      background: #14241a;
+    }
+
+    .contract.bad {
+      border-color: #7c3d3d;
+      background: #2c1818;
+    }
+
+    .history-item {
+      border-left: 3px solid var(--line);
+      padding: 8px 10px;
+      margin: 8px 0;
+      background: var(--panel2);
+      border-radius: 0 8px 8px 0;
+    }
+
+    code { color: #b8ccff; }
+
+    .seed-editor-wrap {
+      padding: 16px 16px 0;
+    }
+
+    .seed-editor {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .seed-editor[hidden] { display: none; }
+
+    .seed-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .seed-summary {
+      color: var(--muted);
+      margin-right: auto;
+    }
+
+    .seed-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .seed-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1050px;
+      background: #11151b;
+    }
+
+    .seed-table th,
+    .seed-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    .seed-table th {
+      background: #202631;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .seed-table tr:last-child td { border-bottom: 0; }
+    .seed-table tr.seed-disabled { opacity: 0.5; }
+
+    .seed-table input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin: 5px auto 0;
+      display: block;
+    }
+
+    .seed-table input[type="text"],
+    .seed-table textarea,
+    .seed-table select {
+      width: 100%;
+      min-width: 0;
+      margin: 0;
+      background: #0d1117;
+    }
+
+    .seed-table textarea { min-height: 64px; }
+
+    .seed-id,
+    .seed-source {
+      font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .seed-delete {
+      padding: 6px 9px;
+      background: #573035;
+      color: #ffd9d9;
+    }
+
+    .seed-count-good {
+      color: var(--good);
+      font-weight: 700;
+    }
+
+    .plan-badge {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: #121722;
+      margin: 8px 0 10px;
+      line-height: 1.35;
+    }
+
+    .plan-badge .dirty {
+      color: var(--warn);
+      font-weight: 700;
+    }
+
+    .notice {
+      border: 1px solid #355b85;
+      background: #15253a;
+      border-radius: 10px;
+      padding: 9px 10px;
+      color: #cde4ff;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .ok-line {
+      color: var(--good);
+      font-weight: 700;
+      margin-top: 8px;
+      min-height: 20px;
+    }
+
+    .error-line {
+      color: var(--bad);
+      font-weight: 700;
+      margin-top: 8px;
+      min-height: 20px;
+    }
+
+    .saved-layout {
+      display: grid;
+      grid-template-columns: minmax(300px, 460px) minmax(420px, 1fr);
+      gap: 16px;
+      padding: 16px;
+    }
+
+    @media (max-width: 1100px) {
+      .saved-layout { grid-template-columns: 1fr; }
+    }
+
+    .list-table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .list-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+    }
+
+    .list-table th,
+    .list-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .list-table th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: #202631;
+    }
+
+    .list-table tr:last-child td { border-bottom: 0; }
+
+    .version-row {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background: #121722;
+    }
+
+    .version-row .head {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .version-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .preview-seeds {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+
+    .preview-seeds th,
+    .preview-seeds td {
+      border-bottom: 1px solid var(--line);
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .preview-seeds th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      background: #1f2633;
+    }
+
+    .preview-seeds tr:last-child td { border-bottom: 0; }
+
+    .query-plan-layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .query-plan-top-row {
+      display: grid;
+      grid-template-columns: minmax(380px, 0.95fr) minmax(520px, 1.05fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 1240px) {
+      .query-plan-top-row { grid-template-columns: 1fr; }
+    }
+
+    .seed-inspect-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .seed-inspect-item {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #121722;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .seed-select-row {
+      display: grid;
+      grid-template-columns: 26px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+    }
+
+    .seed-select-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+    }
+
+    .seed-remove-btn {
+      border: 1px solid #6a3a40;
+      background: #44262b;
+      color: #ffd9d9;
+      border-radius: 7px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tiny {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .query-plan-seed {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      background: #121722;
+    }
+
+    .query-plan-seed h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    .query-plan-editor-table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+
+    .query-plan-editor-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1000px;
+      font-size: 13px;
+    }
+
+    .query-plan-editor-table th,
+    .query-plan-editor-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+      background: #101620;
+    }
+
+    .query-plan-editor-table th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      background: #1d2533;
+    }
+
+    .query-plan-editor-table tr:last-child td { border-bottom: 0; }
+
+    .query-rationale-cell textarea {
+      min-height: 40px;
+      margin: 0;
+      font-size: 12px;
+      padding: 6px;
+    }
+
+    .query-row-enabled {
+      width: 16px;
+      height: 16px;
+    }
+
+    .query-delete {
+      padding: 5px 8px;
+      background: #573035;
+      color: #ffd9d9;
+      font-size: 12px;
+    }
+
+    .meta-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 900px) {
+      .meta-summary-grid { grid-template-columns: 1fr; }
+    }
+
+    .meta-kv {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: #101620;
+    }
+
+    .meta-filters {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .meta-lifecycle-filter {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111923;
+      padding: 7px;
+      display: grid;
+      gap: 6px;
+      min-height: 42px;
+    }
+
+    .meta-lifecycle-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      color: #dbe5f3;
+    }
+
+    .meta-lifecycle-actions {
+      display: inline-flex;
+      gap: 4px;
+    }
+
+    .meta-lifecycle-actions button {
+      padding: 2px 8px;
+      font-size: 11px;
+      margin: 0;
+    }
+
+    .meta-lifecycle-checkboxes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      font-size: 12px;
+    }
+
+    .meta-lifecycle-checkboxes label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #d5e1ef;
+      white-space: nowrap;
+    }
+
+    .meta-lifecycle-checkboxes input[type="checkbox"] {
+      margin: 0;
+    }
+
+    @media (max-width: 980px) {
+      .meta-filters { grid-template-columns: 1fr; }
+    }
+
+    .meta-ads-table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+
+    .offer-family-card {
+      border: 1px solid #32455f;
+      border-radius: 12px;
+      background: #121926;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+
+    .offer-family-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: baseline;
+    }
+
+    .offer-family-class {
+      font-weight: 800;
+      color: #d5e7ff;
+    }
+
+    .offer-family-score {
+      color: #95c0ff;
+      font-weight: 700;
+    }
+
+    .offer-family-meta {
+      margin-top: 6px;
+      color: #b6c8de;
+      font-size: 13px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .offer-family-patterns {
+      margin-top: 7px;
+      color: #d6e7ff;
+      font-size: 12px;
+    }
+
+    .offer-family-reason {
+      margin-top: 8px;
+      color: #eff5ff;
+      font-size: 13px;
+    }
+
+    .offer-family-timeline {
+      margin-top: 10px;
+      border-top: 1px dashed #3a506f;
+      padding-top: 8px;
+      display: grid;
+      gap: 5px;
+      font-size: 12px;
+      color: #ceddf0;
+    }
+
+    .offer-family-timeline .rel {
+      color: #8fb7f3;
+      font-weight: 700;
+      padding-left: 12px;
+    }
+
+    .meta-ads-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 980px;
+      font-size: 13px;
+    }
+
+    .meta-ads-table th,
+    .meta-ads-table td {
+      border-bottom: 1px solid var(--line);
+      padding: 7px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .meta-ads-table th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      background: #202631;
+    }
+
+    .ad-row-card {
+      display: grid;
+      gap: 8px;
+    }
+
+    .ad-row-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      border-bottom: 1px dashed #4a5364;
+      padding-bottom: 7px;
+    }
+
+    .ad-row-meta span {
+      padding: 0 10px;
+      border-right: 1px solid #3b4453;
+      margin-bottom: 6px;
+      color: #d7deea;
+      font-size: 12px;
+    }
+
+    .ad-row-meta span:first-child { padding-left: 0; }
+    .ad-row-meta span:last-child { border-right: 0; }
+
+    .ad-row-content {
+      white-space: normal;
+      line-height: 1.5;
+      font-size: 16px;
+      color: #eef2f7;
+    }
+
+    .ad-row-content .title {
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #f6f9ff;
+    }
+
+    .relevance-badge {
+      display: inline-block;
+      border: 1px solid #48608a;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-right: 8px;
+      margin-bottom: 6px;
+      color: #dbe9ff;
+      background: #223453;
+    }
+
+    .relevance-badge.keep {
+      border-color: #2f7e4f;
+      background: #1f3e2b;
+      color: #b9f0cb;
+    }
+
+    .relevance-badge.potential {
+      border-color: #8b7b3d;
+      background: #3b3420;
+      color: #ffebb0;
+    }
+
+    .relevance-badge.reject {
+      border-color: #874848;
+      background: #402424;
+      color: #ffd0d0;
+    }
+
+    .relevance-badge.unreviewed {
+      border-color: #5b6370;
+      background: #242b36;
+      color: #d4d8df;
+    }
+
+    .details-badge {
+      display: inline-block;
+      border: 1px solid #59708f;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #d2e3ff;
+      background: #203049;
+    }
+
+    .details-badge.ready {
+      border-color: #2f7e4f;
+      background: #1f3e2b;
+      color: #b9f0cb;
+    }
+
+    .details-badge.failed {
+      border-color: #8a5e40;
+      background: #3f2d1e;
+      color: #ffd8bc;
+    }
+
+    .ad-details-btn {
+      padding: 4px 8px;
+      font-size: 11px;
+      border-radius: 999px;
+      background: #233756;
+      color: #dfeaff;
+      border: 1px solid #4a678c;
+    }
+
+    .ad-details-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 11, 18, 0.8);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 200;
+    }
+
+    .ad-details-modal-backdrop.visible {
+      display: flex;
+    }
+
+    .ad-details-modal {
+      width: min(900px, 100%);
+      max-height: 86vh;
+      overflow: auto;
+      background: #171d26;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      color: var(--text);
+    }
+
+    .ad-details-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      background: rgba(23, 29, 38, 0.96);
+      z-index: 1;
+    }
+
+    .ad-details-modal-content {
+      padding: 18px;
+    }
+
+    .ad-details-section {
+      background: #111820;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+    }
+
+    .ad-details-section h4 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: #bfd0f5;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .ad-details-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+    }
+
+    .ad-details-item {
+      background: #1b2430;
+      border: 1px solid #2d3a4d;
+      border-radius: 8px;
+      padding: 8px 10px;
+      min-height: 72px;
+    }
+
+    .ad-details-item strong {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .ad-details-item span {
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--text);
+    }
+
+    .ad-details-json {
+      margin-top: 8px;
+      background: #0b1118;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #d7e6ff;
+      white-space: pre-wrap;
+      overflow: auto;
+      max-height: 260px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .meta-inline-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+
+    .meta-inline-controls select {
+      width: auto;
+      min-width: 150px;
+      margin: 0;
+      padding: 5px 8px;
+      font-size: 12px;
+    }
+
+    .meta-inline-controls button {
+      padding: 4px 8px;
+      font-size: 11px;
+    }
+
+    .filter-help-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      margin-left: 8px;
+    }
+
+    .info-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid #4a5870;
+      background: #243248;
+      color: #d8e6ff;
+      font-weight: 800;
+      padding: 0;
+    }
+
+    .filter-help-bubble {
+      position: absolute;
+      right: 0;
+      top: 34px;
+      width: min(440px, 88vw);
+      z-index: 15;
+      border: 1px solid #47618b;
+      background: #14243b;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.4;
+      color: #d7e8ff;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+
+    .db-size-chip {
+      border-color: #4a5f7f;
+      background: #213149;
+      color: #d2e5ff;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Market Demand Radar — Workbench</h1>
+  <div class="grow"></div>
+  <label style="margin:0">Webhook:
+    <select id="mode" style="width:auto; margin-left:6px">
+      <option value="production" selected>PRODUCTION /webhook</option>
+      <option value="test">TEST /webhook-test</option>
+    </select>
+  </label>
+  <span id="n8nStatus" class="status"><span class="dot"></span>sprawdzam n8n...</span>
+  <span id="dbSizeStatus" class="status db-size-chip"><span class="dot"></span>SQL: ...</span>
+
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="workbench">WORKBENCH</button>
+    <button class="tab-btn" data-tab="saved">ZAPISANE PROJEKTY</button>
+    <button class="tab-btn" data-tab="query-plan">QUERY PLAN</button>
+    <button class="tab-btn" data-tab="results">PRZEGLAD WYNIKOW</button>
+  </nav>
+</header>
+
+<section id="tab-workbench" class="tab-panel active">
+  <div class="seed-editor-wrap">
+    <section id="seedEditor" class="seed-editor" hidden>
+      <div class="seed-toolbar">
+        <div>
+          <h2 style="margin-bottom:4px">Seed Query Editor</h2>
+          <div class="seed-summary">
+            <span id="seedCount">0 seedow</span> ·
+            <span id="enabledSeedCount" class="seed-count-good">0 aktywnych</span>
+            do dalszego discovery / Query Planner
+          </div>
+        </div>
+        <div class="grow"></div>
+        <button id="addSeedBtn" class="secondary">+ Dodaj wlasny seed</button>
+        <button id="enableAllSeedsBtn" class="secondary">Wlacz wszystkie</button>
+        <button id="disableAllSeedsBtn" class="secondary">Wylacz wszystkie</button>
+        <button id="copyEnabledSeedsBtn" class="secondary">Kopiuj aktywne</button>
+      </div>
+
+      <div class="seed-table-wrap">
+        <table class="seed-table">
+          <thead>
+            <tr>
+              <th style="width:62px">Dalej?</th>
+              <th style="width:105px">Priorytet</th>
+              <th style="width:260px">Seed / query</th>
+              <th>Krotki opis / rationale</th>
+              <th style="width:120px">Zrodlo</th>
+              <th style="width:95px">ID</th>
+              <th style="width:78px"></th>
+            </tr>
+          </thead>
+          <tbody id="seedTableBody"></tbody>
+        </table>
+      </div>
+
+      <p class="muted" style="margin:10px 0 0">
+        Zmiany zapisuja sie od razu do <code>currentPlan</code>. MR-02 dostanie juz te edytowana wersje.
+        Collector powinien wykonywac tylko seedy z <code>enabled: true</code>.
+      </p>
+    </section>
+  </div>
+
+  <div class="layout">
+    <section>
+      <div class="panel">
+        <div class="panel-title-row">
+          <h2>MR-01 — Generate Discovery Plan</h2>
+          <button id="saveProjectBtn" class="success" disabled>ZAPISZ PROJEKT</button>
+        </div>
+
+        <div id="planBadge" class="plan-badge">
+          Projekt: <strong>—</strong><br>
+          Plan: <strong>—</strong><br>
+          Stan: <span class="muted">brak currentPlan</span>
+        </div>
+
+        <div id="saveResult" class="ok-line"></div>
+        <div id="saveError" class="error-line"></div>
+
+        <p class="muted">Wypelnij brief. Nie podawaj docelowego produktu ani odbiorcy — to ma byc wynik discovery.</p>
+
+        <label>Nazwa projektu</label>
+        <input id="projectName" value="Psychologia - Polska">
+
+        <label>Kompetencje</label>
+        <textarea id="competencies">Psycholog i psychotraumatolog. Moge tworzyc produkty edukacyjne z szeroko rozumianej psychologii, emocji, relacji, pracy terapeutycznej i zdrowia psychicznego.</textarea>
+
+        <label>Kwalifikacje / doswiadczenie</label>
+        <textarea id="qualifications" class="short">Doswiadczenie psychologiczne i psychotraumatologiczne.</textarea>
+
+        <label>Jakie produkty moge tworzyc?</label>
+        <div class="checks">
+          <label><input type="checkbox" name="format" value="recorded_training" checked> nagrane szkolenie</label>
+          <label><input type="checkbox" name="format" value="online_course" checked> kurs online</label>
+          <label><input type="checkbox" name="format" value="webinar" checked> webinar</label>
+          <label><input type="checkbox" name="format" value="educational_program" checked> program edukacyjny</label>
+          <label><input type="checkbox" name="format" value="workshop"> warsztat</label>
+          <label><input type="checkbox" name="format" value="digital_materials"> materialy cyfrowe</label>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>Kraj</label>
+            <input id="country" value="PL">
+          </div>
+          <div>
+            <label>Jezyk</label>
+            <input id="language" value="pl">
+          </div>
+        </div>
+
+        <label>Ograniczenia (1 na linie)</label>
+        <textarea id="constraints" class="short">Produkt nie moze wymagac formalnej akredytacji uczelni.</textarea>
+
+        <label>Wykluczenia / czego nie chce tworzyc (1 na linie)</label>
+        <textarea id="exclusions" class="short"></textarea>
+
+        <div class="actions">
+          <button id="generateBtn">Generuj MR-01</button>
+          <button id="newProjectBtn" class="secondary">Nowy projectId</button>
+        </div>
+
+        <h3>Request IDs</h3>
+        <div class="muted">projectId: <code id="projectIdText"></code></div>
+        <div class="muted">ostatni requestId: <code id="requestIdText">—</code></div>
+      </div>
+
+      <div class="panel">
+        <h2>MR-02 — Chat / Revise Plan</h2>
+        <p id="planStateText" class="muted">Najpierw wygeneruj poprawny plan MR-01.</p>
+
+        <label>Instrukcja dla MR-02</label>
+        <textarea id="instruction">Nie ograniczaj sie tylko do rynku specjalistow. Uwzglednij rowniez produkty kupowane bezposrednio przez klientow indywidualnych.</textarea>
+
+        <div class="actions">
+          <button id="reviseBtn" disabled>Wyslij MR-02</button>
+          <button id="clearPlanBtn" class="danger">Wyczysc currentPlan</button>
+        </div>
+
+        <h3>Opcjonalnie: wklej currentPlan recznie</h3>
+        <textarea id="manualPlan" class="short" placeholder='{"schemaVersion":"1.1", ...}'></textarea>
+        <div class="actions">
+          <button id="loadPlanBtn" class="secondary">Wczytaj JSON jako currentPlan</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Historia rewizji w tej sesji</h2>
+        <div id="history" class="muted">Brak.</div>
+      </div>
+    </section>
+
+    <section>
+      <div class="panel">
+        <h2>Ostatnia odpowiedz</h2>
+        <div id="meta" class="meta"></div>
+        <div id="contract" class="contract">Brak odpowiedzi.</div>
+        <div class="actions" style="margin-bottom:10px">
+          <button id="copyBtn" class="secondary" disabled>Kopiuj JSON</button>
+        </div>
+        <pre id="output">Tu pojawi sie odpowiedz n8n.</pre>
+      </div>
+
+      <div class="panel">
+        <h2>Current Plan</h2>
+        <p class="muted">To dokladnie ten obiekt zostanie wyslany jako <code>currentPlan</code> do MR-02.</p>
+        <pre id="currentPlanOutput">Brak currentPlan.</pre>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section id="tab-saved" class="tab-panel">
+  <div class="saved-layout">
+    <section>
+      <div class="panel">
+        <div class="panel-title-row">
+          <h2>Zapisane projekty</h2>
+          <button id="refreshProjectsBtn" class="secondary">Odswiez liste</button>
+        </div>
+        <div class="list-table-wrap">
+          <table class="list-table">
+            <thead>
+              <tr>
+                <th>Projekt</th>
+                <th>Aktualizacja</th>
+                <th>Wersje</th>
+                <th>Latest status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="savedProjectsBody">
+              <tr><td colspan="5" class="muted">Brak danych.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="panel">
+        <h2>Wybrany projekt</h2>
+        <div id="selectedProjectMeta" class="muted">Wybierz projekt z listy.</div>
+
+        <h3>Brief</h3>
+        <pre id="selectedProjectBrief">—</pre>
+
+        <h3>Versions</h3>
+        <div id="selectedProjectVersions" class="muted">Brak.</div>
+      </div>
+
+      <div class="panel">
+        <h2>Podglad wersji</h2>
+        <div id="versionPreview" class="muted">Kliknij POKAZ przy wybranej wersji.</div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section id="tab-query-plan" class="tab-panel">
+  <div class="query-plan-layout">
+    <section class="query-plan-top-row">
+      <div class="panel">
+        <h2>MR03 Query Planner</h2>
+        <div id="queryPlanProjectMeta" class="notice">Projekt: —</div>
+
+        <label>Maksymalna liczba query na seed</label>
+        <input id="queryPlanMaxQueries" type="number" min="1" max="12" value="6">
+
+        <div class="actions" style="margin-top:14px">
+          <button id="queryPlanGenerateBtn">GENERUJ QUERY PLAN</button>
+          <button id="queryPlanRefreshBtn" class="secondary">ODSWIEZ</button>
+          <button id="queryPlanSaveBtn" class="secondary">ZAPISZ ZMIANY</button>
+          <button id="queryPlanApproveBtn" class="success">ZATWIERDZ PLAN</button>
+          <button id="metaResearchStartBtn" class="success" disabled>URUCHOM BADANIE META ADS</button>
+        </div>
+
+        <div id="queryPlanActionOk" class="ok-line"></div>
+        <div id="queryPlanActionErr" class="error-line"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Seedy z najnowszego planu projektu</h2>
+        <div class="tiny" id="queryPlanSeedSelectionSummary">To seedy pobierane przez backend z SQLite i wysylane do MR03.</div>
+        <div class="actions" style="margin-top:10px">
+          <button id="queryPlanSelectAllSeedsBtn" class="secondary">Zaznacz wszystkie</button>
+          <button id="queryPlanClearSeedSelectionBtn" class="secondary">Wyczysc zaznaczenie</button>
+        </div>
+        <div id="queryPlanSeedSourceList" class="seed-inspect-list">
+          <div class="muted">Brak danych.</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="panel">
+        <h2>Query Plan</h2>
+        <div id="queryPlanSummary" class="muted">Brak Query Planu. Kliknij GENERUJ QUERY PLAN.</div>
+        <div id="queryPlanValidation" class="error-line"></div>
+        <div id="queryPlanEditor" class="seed-inspect-list" style="margin-top:10px"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Query Plan JSON</h2>
+        <pre id="queryPlanRawOutput">Brak.</pre>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section id="tab-results" class="tab-panel">
+  <div class="query-plan-layout">
+    <section>
+      <div class="panel">
+        <h2>PRZEGLAD WYNIKOW META ADS</h2>
+        <div id="metaResearchStatus" class="muted">Brak uruchomionego badania.</div>
+        <div id="metaResearchProgress" class="notice" style="margin-top:8px; display:none"></div>
+        <div id="metaResearchSummary" class="meta-summary-grid"></div>
+        <div id="metaRelevanceSummary" class="notice" style="margin-top:8px; display:none"></div>
+
+        <div class="actions" style="margin-top:8px">
+          <button id="metaRunRelevanceBtn" class="danger" disabled>ODRZUC SMIECI</button>
+          <button id="metaExportFullCsvBtn" class="secondary" disabled>POBIERZ PELNY CSV</button>
+          <button id="metaExportShortCsvBtn" class="secondary" disabled>POBIERZ SKROCONY CSV</button>
+          <div class="filter-help-wrap">
+            <button id="metaFilterHelpBtn" class="info-btn" title="Jak działają filtry query/seed">i</button>
+            <div id="metaFilterHelpBubble" class="filter-help-bubble hidden">
+              <strong>Filtr query / seed</strong><br>
+              - wpis bez znaku $: zwykłe wyszukiwanie fragmentu tekstu<br>
+              - znak $ oznacza dowolną liczbę znaków (wildcard)<br>
+              - przykład: <em>psycholog$ relac$</em> dopasuje także odmiany i dłuższe formy<br>
+              - filtry działają łącznie z pozostałymi polami (AND)
+            </div>
+          </div>
+        </div>
+        <div id="metaRelevanceRunStatus" class="tiny" style="margin-top:6px"></div>
+
+        <div id="adDetailsModalBackdrop" class="ad-details-modal-backdrop" aria-hidden="true">
+          <div class="ad-details-modal" role="dialog" aria-modal="true" aria-labelledby="adDetailsTitle">
+            <div class="ad-details-modal-header">
+              <h3 id="adDetailsTitle">Szczegóły reklamy</h3>
+              <button id="adDetailsCloseBtn" class="secondary" type="button">Zamknij</button>
+            </div>
+            <div id="adDetailsContent" class="ad-details-modal-content"></div>
+          </div>
+        </div>
+
+        <div class="meta-filters">
+          <select id="metaFilterRelevance">
+            <option value="USEFUL">Relevance: UZYTECZNE</option>
+            <option value="KEEP">Relevance: KEEP</option>
+            <option value="POTENTIAL">Relevance: POTENCJALNE</option>
+            <option value="UNREVIEWED">Relevance: NIESPRAWDZONE</option>
+            <option value="REJECT">Relevance: SMIECI</option>
+            <option value="ALL">Relevance: WSZYSTKIE</option>
+          </select>
+          <input id="metaFilterQuery" placeholder="Filtr query">
+          <input id="metaFilterSeed" placeholder="Filtr seed">
+          <input id="metaFilterPage" placeholder="Filtr page / advertiser">
+          <div id="metaLifecycleFilterWrap" class="meta-lifecycle-filter">
+            <div class="meta-lifecycle-header">
+              <strong>Lifecycle</strong>
+              <div class="meta-lifecycle-actions">
+                <button id="metaLifecycleHelpBtn" class="info-btn" type="button" title="Jak klasyfikujemy lifecycle">i</button>
+                <button id="metaLifecycleAllBtn" class="secondary" type="button">ALL</button>
+                <button id="metaLifecycleNoneBtn" class="secondary" type="button">NONE</button>
+              </div>
+            </div>
+            <div id="metaLifecycleHelpBubble" class="filter-help-bubble hidden" style="right:auto; left:0; top:42px; width:min(440px, 82vw);">
+                <strong>AD lifecycle (pojedyncza reklama)</strong><br>
+                - BALON_PROBNY: do 7 dni albo brak poprawnej daty startu<br>
+                - TEST_W_TOKU: 8-30 dni<br>
+                - ROKUJACA: 31-90 dni<br>
+                - MOCNA: 91-180 dni<br>
+                - EVERGREEN: powyzej 180 dni<br><br>
+                <strong>Offer Family Class (ta sama oferta, wiele reklam)</strong><br>
+                - TEST_ONLY: pojedynczy krotki test bez nastepcy<br>
+                - REPEATED_TEST: kilka krotkich testow bez dlugiej kontynuacji<br>
+                - PROMISING: widac przejscie z testu do dluzszej emisji<br>
+                - ESTABLISHED: wyrazny dowod dluzszego utrzymywania oferty<br>
+                - EVERGREEN: mocny sygnal dlugotrwalej obecnosci oferty, czesto z nastepstwami
+            </div>
+            <div id="metaLifecycleCheckboxes" class="meta-lifecycle-checkboxes">
+              <label><input type="checkbox" class="meta-lifecycle-check" value="BALON_PROBNY" checked> <span data-lifecycle-label="BALON_PROBNY">BALON PROBNY</span></label>
+              <label><input type="checkbox" class="meta-lifecycle-check" value="TEST_W_TOKU" checked> <span data-lifecycle-label="TEST_W_TOKU">TEST W TOKU</span></label>
+              <label><input type="checkbox" class="meta-lifecycle-check" value="ROKUJACA" checked> <span data-lifecycle-label="ROKUJACA">ROKUJACA</span></label>
+              <label><input type="checkbox" class="meta-lifecycle-check" value="MOCNA" checked> <span data-lifecycle-label="MOCNA">MOCNA</span></label>
+              <label><input type="checkbox" class="meta-lifecycle-check" value="EVERGREEN" checked> <span data-lifecycle-label="EVERGREEN">EVERGREEN</span></label>
+            </div>
+          </div>
+          <select id="metaFilterVisible">
+            <option value="ALL">Visible match: ALL</option>
+            <option value="YES">Visible match: TAK</option>
+            <option value="NO">Visible match: NIE</option>
+          </select>
+          <select id="metaFilterActive">
+            <option value="ALL">Status: ALL</option>
+            <option value="ACTIVE">Status: aktywne</option>
+            <option value="INACTIVE">Status: zakonczone</option>
+          </select>
+          <input id="metaFilterMinReach" type="number" min="0" placeholder="Min EU reach">
+          <input id="metaFilterStartDate" type="date">
+          <select id="metaSortBy">
+            <option value="lastSeen">Sort: Last seen</option>
+            <option value="lifecycle">Sort: Lifecycle</option>
+            <option value="duration">Sort: Duration</option>
+            <option value="reach">Sort: EU reach</option>
+            <option value="start">Sort: Start date</option>
+            <option value="firstSeen">Sort: First seen</option>
+          </select>
+        </div>
+
+        <div class="meta-filters" style="margin-top:8px">
+          <select id="metaFamilyClassFilter">
+            <option value="ALL">Family class: ALL</option>
+            <option value="TEST_ONLY">Family class: TEST_ONLY</option>
+            <option value="REPEATED_TEST">Family class: REPEATED_TEST</option>
+            <option value="PROMISING">Family class: PROMISING</option>
+            <option value="ESTABLISHED">Family class: ESTABLISHED</option>
+            <option value="EVERGREEN">Family class: EVERGREEN</option>
+            <option value="UNCLASSIFIED">Family class: UNCLASSIFIED</option>
+          </select>
+          <select id="metaFamilyStatusFilter">
+            <option value="ALL">Family status: ALL</option>
+            <option value="ACTIVE">Family status: ACTIVE</option>
+            <option value="ENDED">Family status: ENDED</option>
+          </select>
+          <select id="metaFamilyPatternFilter">
+            <option value="ALL">Family pattern: ALL</option>
+            <option value="DIRECT_SUCCESSOR">Pattern: DIRECT_SUCCESSOR</option>
+            <option value="PARALLEL_TEST">Pattern: PARALLEL_TEST</option>
+            <option value="RELAUNCH">Pattern: RELAUNCH</option>
+            <option value="CONTINUOUS_CAMPAIGN">Pattern: CONTINUOUS_CAMPAIGN</option>
+            <option value="CREATIVE_REFRESH">Pattern: CREATIVE_REFRESH</option>
+          </select>
+          <div id="offerFamilySummary" class="tiny" style="align-self:center; padding-left:6px;">Brak rodzin ofert.</div>
+        </div>
+
+        <div class="actions">
+          <button id="metaApplyFiltersBtn" class="secondary">ZASTOSUJ FILTRY</button>
+        </div>
+
+        <div class="meta-ads-table-wrap">
+          <table class="meta-ads-table">
+            <thead>
+              <tr>
+                <th>Reklama</th>
+              </tr>
+            </thead>
+            <tbody id="metaAdsBody">
+              <tr><td colspan="1" class="muted">Brak danych.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel" style="margin-top:12px; padding:12px;">
+          <h3 style="margin-top:0">RODZINY OFERT</h3>
+          <div id="offerFamilyList" class="seed-inspect-list">Brak rodzin ofert.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+
+<script>
+const REQUIRED_TOP = [
+  'schemaVersion',
+  'capabilityUnderstanding',
+  'marketBreadth',
+  'seedQueries',
+  'candidateProductTypes',
+  'initialTaxonomy',
+  'discoveryStrategies',
+  'queryExpansionPolicy',
+  'openUnknowns',
+  'constraints',
+  'discoveryLimits',
+  'saturationCriteria',
+  'changeSummary',
+  'warnings',
+];
+
+const SOURCE_EVENT_LABELS = {
+  LLM_GENERATION: 'LLM_GENERATION',
+  LLM_REVISION: 'LLM_REVISION',
+  MANUAL_REVISION: 'MANUAL_REVISION',
+};
+
+let currentPlan = null;
+let currentPlanOrigin = null;
+let currentPersistedVersionId = null;
+let currentPersistedVersionNumber = null;
+let currentPlanDirty = false;
+let queryPlanContext = null;
+let currentQueryPlan = null;
+let currentQueryPlanDirty = false;
+let currentMetaResearchRun = null;
+let metaResearchPollHandle = null;
+let queryPlanSelectedSeedIds = new Set();
+let currentMetaAds = [];
+let currentOfferFamilies = [];
+let currentMetaRelevanceSummary = null;
+let metaRelevanceBusy = false;
+
+let revisionNumber = 0;
+let selectedSavedProject = null;
+
+const QUERY_TYPES = ['CORE', 'PROBLEM', 'AUDIENCE', 'FORMAT', 'SYNONYM', 'PRECISION'];
+const LIFECYCLE_LABELS = {
+  BALON_PROBNY: 'BALON PROBNY',
+  TEST_W_TOKU: 'TEST W TOKU',
+  ROKUJACA: 'ROKUJACA',
+  MOCNA: 'MOCNA',
+  EVERGREEN: 'EVERGREEN',
+};
+const LIFECYCLE_FILTER_VALUES = ['BALON_PROBNY', 'TEST_W_TOKU', 'ROKUJACA', 'MOCNA', 'EVERGREEN'];
+const FAMILY_CLASS_ORDER = ['EVERGREEN', 'ESTABLISHED', 'PROMISING', 'REPEATED_TEST', 'TEST_ONLY', 'UNCLASSIFIED'];
+const MODE_STORAGE_KEY = 'marketRadarWebhookMode';
+
+const RELEVANCE_LABELS = {
+  USEFUL: 'UZYTECZNE',
+  KEEP: 'KEEP',
+  POTENTIAL: 'POTENCJALNE',
+  UNREVIEWED: 'NIESPRAWDZONE',
+  REJECT: 'SMIECI',
+  ALL: 'WSZYSTKIE',
+};
+
+const $ = id => document.getElementById(id);
+
+function uuid() {
+  return crypto.randomUUID();
+}
+
+let projectId = localStorage.getItem('marketRadarProjectId') || uuid();
+localStorage.setItem('marketRadarProjectId', projectId);
+$('projectIdText').textContent = projectId;
+
+const storedMode = localStorage.getItem(MODE_STORAGE_KEY);
+$('mode').value = storedMode === 'test' ? 'test' : 'production';
+$('mode').addEventListener('change', () => {
+  localStorage.setItem(MODE_STORAGE_KEY, $('mode').value);
+});
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  }[c]));
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('pl-PL');
+}
+
+function formatBytes(bytes) {
+  const num = Number(bytes);
+  if (!Number.isFinite(num) || num < 0) return '—';
+  if (num < 1024) return `${num} B`;
+  if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
+  if (num < 1024 * 1024 * 1024) return `${(num / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(num / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function normalizeRelevanceStatus(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (['KEEP', 'POTENTIAL', 'REJECT', 'UNREVIEWED'].includes(normalized)) return normalized;
+  return 'UNREVIEWED';
+}
+
+function relevanceBadgeClass(status) {
+  if (status === 'KEEP') return 'keep';
+  if (status === 'POTENTIAL') return 'potential';
+  if (status === 'REJECT') return 'reject';
+  return 'unreviewed';
+}
+
+function lines(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function checkedFormats() {
+  return [...document.querySelectorAll('input[name="format"]:checked')].map(el => el.value);
+}
+
+function capabilities() {
+  return [
+    {
+      source: 'META_AD_LIBRARY',
+      modes: ['KEYWORD_SEARCH'],
+    }
+  ];
+}
+
+function collectBriefFromForm() {
+  return {
+    projectName: $('projectName').value.trim(),
+    competencies: $('competencies').value.trim(),
+    qualifications: $('qualifications').value.trim(),
+    availableProductFormats: checkedFormats(),
+    market: {
+      country: $('country').value.trim() || 'PL',
+      language: $('language').value.trim() || 'pl',
+    },
+    constraints: lines($('constraints').value),
+    exclusions: lines($('exclusions').value),
+  };
+}
+
+function applyBriefToForm(brief) {
+  $('projectName').value = brief.projectName || '';
+  $('competencies').value = brief.competencies || '';
+  $('qualifications').value = brief.qualifications || '';
+  $('country').value = brief.market?.country || 'PL';
+  $('language').value = brief.market?.language || 'pl';
+  $('constraints').value = Array.isArray(brief.constraints) ? brief.constraints.join('\n') : (brief.constraints || '');
+  $('exclusions').value = Array.isArray(brief.exclusions) ? brief.exclusions.join('\n') : (brief.exclusions || '');
+
+  const selectedFormats = new Set(Array.isArray(brief.availableProductFormats) ? brief.availableProductFormats : []);
+  for (const checkbox of document.querySelectorAll('input[name="format"]')) {
+    checkbox.checked = selectedFormats.has(checkbox.value);
+  }
+}
+
+function basicContractCheck(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, reason: 'Odpowiedz nie jest obiektem JSON.' };
+  }
+
+  if ('text' in value && typeof value.text === 'string') {
+    return { ok: false, reason: 'Odpowiedz jest nadal opakowana w pole text zamiast direct DiscoveryPlan.' };
+  }
+
+  const missing = REQUIRED_TOP.filter(k => !(k in value));
+  if (missing.length) {
+    return { ok: false, reason: `Brakuje top-level fields: ${missing.join(', ')}` };
+  }
+
+  if (value.schemaVersion !== '1.1') {
+    return { ok: false, reason: `schemaVersion = ${JSON.stringify(value.schemaVersion)}, oczekiwano "1.1".` };
+  }
+
+  if (!Array.isArray(value.seedQueries)) {
+    return { ok: false, reason: 'seedQueries nie jest tablica.' };
+  }
+
+  if (value.seedQueries.length === 0) {
+    return { ok: false, reason: 'seedQueries jest puste — schema wymaga co najmniej jednego seeda.' };
+  }
+
+  for (const [index, seed] of value.seedQueries.entries()) {
+    const requiredSeed = ['id', 'query', 'rationale', 'priority', 'enabled', 'source'];
+    const missingSeed = requiredSeed.filter(k => !seed || !(k in seed));
+
+    if (missingSeed.length) {
+      return { ok: false, reason: `seedQueries[${index}] brakuje: ${missingSeed.join(', ')}` };
+    }
+
+    if (!['high', 'medium', 'low'].includes(seed.priority)) {
+      return { ok: false, reason: `seedQueries[${index}].priority jest niepoprawne.` };
+    }
+
+    if (typeof seed.enabled !== 'boolean') {
+      return { ok: false, reason: `seedQueries[${index}].enabled musi byc boolean.` };
+    }
+  }
+
+  if (!Array.isArray(value.discoveryStrategies)) {
+    return { ok: false, reason: 'discoveryStrategies nie jest tablica.' };
+  }
+
+  if (!Array.isArray(value.warnings)) {
+    return { ok: false, reason: 'warnings nie jest tablica.' };
+  }
+
+  if (typeof value.changeSummary !== 'string') {
+    return { ok: false, reason: 'changeSummary nie jest stringiem.' };
+  }
+
+  return { ok: true, reason: 'Basic contract PASS — wszystkie wymagane top-level fields sa obecne.' };
+}
+
+function setContract(result) {
+  const el = $('contract');
+  el.className = `contract ${result.ok ? 'good' : 'bad'}`;
+  el.textContent = result.ok ? `OK ${result.reason}` : `BLAD ${result.reason}`;
+}
+
+function updatePlanBadge() {
+  const brief = collectBriefFromForm();
+  const projectName = brief.projectName || '—';
+
+  let planLabel = '—';
+  if (currentPersistedVersionNumber) {
+    planLabel = `v${currentPersistedVersionNumber}`;
+  } else if (currentPlan) {
+    planLabel = 'lokalny (niezapisany)';
+  }
+
+  let stateLabel = '<span class="muted">brak currentPlan</span>';
+  if (currentPlan) {
+    if (currentPlanDirty) {
+      stateLabel = '<span class="dirty">NIEZAPISANE ZMIANY</span>';
+    } else {
+      stateLabel = '<span class="good">zapisany</span>';
+    }
+  }
+
+  const originLabel = currentPlanOrigin ? SOURCE_EVENT_LABELS[currentPlanOrigin] || currentPlanOrigin : '—';
+
+  $('planBadge').innerHTML = [
+    `Projekt: <strong>${escapeHtml(projectName)}</strong>`,
+    `Plan: <strong>${escapeHtml(planLabel)}</strong>`,
+    `Pochodzenie: <strong>${escapeHtml(originLabel)}</strong>`,
+    `Stan: ${stateLabel}`,
+  ].join('<br>');
+
+  $('saveProjectBtn').disabled = !currentPlan;
+}
+
+function addHistory(title, detail) {
+  const root = $('history');
+  if (root.classList.contains('muted')) {
+    root.classList.remove('muted');
+    root.innerHTML = '';
+  }
+
+  const div = document.createElement('div');
+  div.className = 'history-item';
+  div.innerHTML = `<strong>${escapeHtml(title)}</strong><br><span class="muted">${escapeHtml(String(detail || ''))}</span>`;
+  root.prepend(div);
+}
+
+function markPlanDirty(origin) {
+  currentPlanOrigin = origin || 'MANUAL_REVISION';
+  currentPlanDirty = true;
+  updatePlanBadge();
+}
+
+function setCurrentPlan(plan, options = {}) {
+  currentPlan = plan;
+
+  if (options.origin !== undefined) {
+    currentPlanOrigin = options.origin;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(options, 'persistedVersionId')) {
+    currentPersistedVersionId = options.persistedVersionId;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(options, 'persistedVersionNumber')) {
+    currentPersistedVersionNumber = options.persistedVersionNumber;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(options, 'dirty')) {
+    currentPlanDirty = options.dirty;
+  }
+
+  if (options.sourceLabel) {
+    revisionNumber += 1;
+    $('planStateText').textContent = `currentPlan gotowy - ${options.sourceLabel}`;
+    if (options.addHistory !== false) {
+      addHistory(`${revisionNumber}. ${options.sourceLabel}`, plan.changeSummary || '(brak changeSummary / initial generation)');
+    }
+  }
+
+  syncPlanViews();
+}
+
+function syncPlanViews() {
+  $('currentPlanOutput').textContent = currentPlan ? JSON.stringify(currentPlan, null, 2) : 'Brak currentPlan.';
+  renderSeedEditor();
+  updatePlanBadge();
+
+  $('saveResult').textContent = '';
+  $('saveError').textContent = '';
+
+  if (currentPlan) {
+    const check = basicContractCheck(currentPlan);
+    setContract(check);
+    $('reviseBtn').disabled = !check.ok;
+  } else {
+    $('reviseBtn').disabled = true;
+  }
+}
+
+function renderSeedEditor() {
+  const editor = $('seedEditor');
+  const tbody = $('seedTableBody');
+
+  if (!currentPlan || !Array.isArray(currentPlan.seedQueries)) {
+    editor.hidden = true;
+    tbody.innerHTML = '';
+    return;
+  }
+
+  editor.hidden = false;
+  tbody.innerHTML = '';
+
+  const seeds = currentPlan.seedQueries;
+  $('seedCount').textContent = `${seeds.length} seedow`;
+  $('enabledSeedCount').textContent = `${seeds.filter(seed => seed.enabled).length} aktywnych`;
+
+  for (const seed of seeds) {
+    const tr = document.createElement('tr');
+    if (!seed.enabled) tr.classList.add('seed-disabled');
+
+    tr.innerHTML = `
+      <td><input type="checkbox" class="seed-enabled" data-seed-id="${escapeHtml(seed.id)}" ${seed.enabled ? 'checked' : ''}></td>
+      <td>
+        <select class="seed-priority" data-seed-id="${escapeHtml(seed.id)}">
+          <option value="high" ${seed.priority === 'high' ? 'selected' : ''}>high</option>
+          <option value="medium" ${seed.priority === 'medium' ? 'selected' : ''}>medium</option>
+          <option value="low" ${seed.priority === 'low' ? 'selected' : ''}>low</option>
+        </select>
+      </td>
+      <td><input type="text" class="seed-query" data-seed-id="${escapeHtml(seed.id)}" value="${escapeHtml(seed.query)}"></td>
+      <td><textarea class="seed-rationale" data-seed-id="${escapeHtml(seed.id)}">${escapeHtml(seed.rationale)}</textarea></td>
+      <td class="seed-source">${escapeHtml(seed.source)}</td>
+      <td class="seed-id">${escapeHtml(seed.id)}</td>
+      <td><button class="seed-delete" data-seed-id="${escapeHtml(seed.id)}">Usun</button></td>
+    `;
+
+    tbody.appendChild(tr);
+  }
+}
+
+function findSeed(seedId) {
+  return currentPlan?.seedQueries?.find(seed => seed.id === seedId) || null;
+}
+
+function updateSeed(seedId, patch) {
+  const seed = findSeed(seedId);
+  if (!seed) return;
+  Object.assign(seed, patch);
+  markPlanDirty('MANUAL_REVISION');
+  syncPlanViews();
+}
+
+function deleteSeed(seedId) {
+  if (!currentPlan?.seedQueries) return;
+
+  if (currentPlan.seedQueries.length <= 1) {
+    alert('DiscoveryPlanV1 wymaga co najmniej jednego seeda. Nie mozna usunac ostatniego.');
+    return;
+  }
+
+  currentPlan.seedQueries = currentPlan.seedQueries.filter(seed => seed.id !== seedId);
+  markPlanDirty('MANUAL_REVISION');
+  syncPlanViews();
+}
+
+function createUserSeed() {
+  if (!currentPlan) return;
+
+  currentPlan.seedQueries.push({
+    id: `user-${uuid()}`,
+    query: 'nowy seed',
+    rationale: 'Seed dodany recznie przez uzytkownika.',
+    priority: 'medium',
+    enabled: true,
+    source: 'USER'
+  });
+
+  markPlanDirty('MANUAL_REVISION');
+  syncPlanViews();
+}
+
+function setMeta(result) {
+  $('meta').innerHTML = [
+    `HTTP n8n: ${result.upstreamStatus ?? '—'}`,
+    `${result.durationMs ?? '—'} ms`,
+    result.mode || '',
+    result.webhookPath || '',
+  ]
+    .filter(Boolean)
+    .map(x => `<span class="chip">${escapeHtml(String(x))}</span>`)
+    .join('');
+}
+
+async function callWorkflow(endpoint, payload) {
+  const mode = $('mode').value;
+  $('output').textContent = 'Wysylam...';
+  $('contract').className = 'contract';
+  $('contract').textContent = 'Czekam na odpowiedz...';
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, payload }),
+  });
+
+  const result = await response.json();
+  setMeta(result);
+
+  lastResponseData = result.data ?? result;
+  $('copyBtn').disabled = false;
+  $('output').textContent = JSON.stringify(lastResponseData, null, 2);
+
+  if (!result.ok) {
+    setContract({ ok: false, reason: `n8n zwrocil blad HTTP ${result.upstreamStatus ?? ''}: ${JSON.stringify(result.data ?? result.error)}` });
+    return { result, plan: null };
+  }
+
+  const contract = basicContractCheck(lastResponseData);
+  setContract(contract);
+
+  return {
+    result,
+    plan: contract.ok ? lastResponseData : null,
+  };
+}
+
+function setActiveTab(tabId) {
+  for (const panel of document.querySelectorAll('.tab-panel')) {
+    panel.classList.toggle('active', panel.id === `tab-${tabId}`);
+  }
+
+  for (const button of document.querySelectorAll('.tab-btn')) {
+    button.classList.toggle('active', button.dataset.tab === tabId);
+  }
+
+  if (tabId === 'saved') {
+    refreshProjects();
+  }
+
+  if (tabId === 'query-plan') {
+    refreshQueryPlanContext();
+    refreshLatestMetaResearchForProject();
+  }
+
+  if (tabId === 'results') {
+    refreshLatestMetaResearchForProject();
+  }
+}
+
+async function saveCurrentProject() {
+  $('saveResult').textContent = '';
+  $('saveError').textContent = '';
+
+  if (!currentPlan) {
+    $('saveError').textContent = 'Brak currentPlan do zapisu.';
+    return;
+  }
+
+  const sourceEvent = currentPlanOrigin || 'MANUAL_REVISION';
+  const parentVersionId = sourceEvent === 'LLM_GENERATION' ? null : currentPersistedVersionId;
+
+  const payload = {
+    brief: collectBriefFromForm(),
+    plan: currentPlan,
+    sourceEvent,
+    parentVersionId: parentVersionId || null,
+  };
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    currentPersistedVersionId = data.version.id;
+    currentPersistedVersionNumber = data.version.versionNumber;
+    currentPlanDirty = false;
+
+    updatePlanBadge();
+
+    if (data.alreadySaved) {
+      $('saveResult').textContent = `✓ juz zapisane jako v${data.version.versionNumber}`;
+    } else {
+      $('saveResult').textContent = `✓ zapisano jako v${data.version.versionNumber}`;
+      addHistory(`SAVE v${data.version.versionNumber}`, `${data.version.sourceEvent} (${data.version.id})`);
+    }
+  } catch (error) {
+    $('saveError').textContent = `BLAD zapisu: ${error.message}`;
+  }
+}
+
+function renderProjectList(projects) {
+  const body = $('savedProjectsBody');
+
+  if (!projects.length) {
+    body.innerHTML = '<tr><td colspan="5" class="muted">Brak zapisanych projektow.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = projects.map(project => `
+    <tr>
+      <td>${escapeHtml(project.name)}</td>
+      <td>${escapeHtml(formatDateTime(project.updatedAt))}</td>
+      <td>${escapeHtml(project.latestVersionNumber ?? '—')}</td>
+      <td>${escapeHtml(project.latestVersionStatus ?? '—')}</td>
+      <td><button class="secondary open-project-btn" data-project-id="${escapeHtml(project.id)}">Otworz</button></td>
+    </tr>
+  `).join('');
+}
+
+function renderSelectedProject(data) {
+  selectedSavedProject = data;
+
+  $('selectedProjectMeta').innerHTML = `
+    <strong>${escapeHtml(data.project.name)}</strong><br>
+    ID: <code>${escapeHtml(data.project.id)}</code><br>
+    Aktualizacja: ${escapeHtml(formatDateTime(data.project.updatedAt))}
+  `;
+
+  const brief = data.project.brief || {};
+  $('selectedProjectBrief').textContent = JSON.stringify({
+    competencies: brief.competencies || '',
+    qualifications: brief.qualifications || '',
+    availableProductFormats: brief.availableProductFormats || [],
+    market: brief.market || {},
+    constraints: brief.constraints || [],
+    exclusions: brief.exclusions || [],
+  }, null, 2);
+
+  if (!data.versions.length) {
+    $('selectedProjectVersions').innerHTML = '<div class="muted">Brak wersji planu.</div>';
+    return;
+  }
+
+  $('selectedProjectVersions').innerHTML = data.versions.map(version => `
+    <div class="version-row">
+      <div class="head">
+        <div>
+          <strong>v${escapeHtml(version.versionNumber)}</strong>
+          ${escapeHtml(version.sourceEvent)}
+        </div>
+        <div class="tiny">${escapeHtml(formatDateTime(version.createdAt))}</div>
+      </div>
+      <div class="tiny">status: ${escapeHtml(version.status)} · parent: ${escapeHtml(version.parentVersionId || 'null')}</div>
+      <div class="version-actions" style="margin-top:8px">
+        <button class="secondary preview-version-btn" data-version-id="${escapeHtml(version.id)}">POKAZ</button>
+        <button class="success load-version-btn" data-version-id="${escapeHtml(version.id)}">WCZYTAJ DO WORKBENCHA</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderVersionPreview(payload) {
+  const plan = payload.plan;
+  const version = payload.version;
+  const seeds = Array.isArray(plan.seedQueries) ? plan.seedQueries : [];
+  const enabledSeeds = seeds.filter(seed => seed.enabled);
+
+  const tableRows = seeds.map(seed => `
+    <tr>
+      <td>${escapeHtml(seed.id)}</td>
+      <td>${escapeHtml(seed.query)}</td>
+      <td>${escapeHtml(seed.priority)}</td>
+      <td>${seed.enabled ? 'true' : 'false'}</td>
+      <td>${escapeHtml(seed.source)}</td>
+    </tr>
+  `).join('');
+
+  $('versionPreview').innerHTML = `
+    <div class="notice">
+      <strong>Wersja v${escapeHtml(version.versionNumber)}</strong><br>
+      source: ${escapeHtml(version.sourceEvent)}<br>
+      status: ${escapeHtml(version.status)}<br>
+      created: ${escapeHtml(formatDateTime(version.createdAt))}
+    </div>
+
+    <p><strong>capabilityUnderstanding</strong><br>${escapeHtml(plan.capabilityUnderstanding || '')}</p>
+    <p><strong>Liczba seedow:</strong> ${escapeHtml(seeds.length)}<br>
+    <strong>Enabled:</strong> ${escapeHtml(enabledSeeds.length)}</p>
+
+    <table class="preview-seeds">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Query</th>
+          <th>Priority</th>
+          <th>Enabled</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows || '<tr><td colspan="5" class="muted">Brak seedow.</td></tr>'}
+      </tbody>
+    </table>
+
+    <p style="margin-top:10px"><strong>changeSummary</strong><br>${escapeHtml(plan.changeSummary || '')}</p>
+
+    <details>
+      <summary>Raw JSON</summary>
+      <pre>${escapeHtml(JSON.stringify(plan, null, 2))}</pre>
+    </details>
+  `;
+}
+
+async function refreshProjects() {
+  try {
+    const res = await fetch('/api/projects');
+    const projects = await res.json();
+
+    if (!Array.isArray(projects)) {
+      throw new Error('Nieprawidlowy format odpowiedzi /api/projects');
+    }
+
+    renderProjectList(projects);
+  } catch (error) {
+    $('savedProjectsBody').innerHTML = `<tr><td colspan="5" class="bad">BLAD: ${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+async function openProject(projectIdToOpen) {
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectIdToOpen)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    renderSelectedProject(data);
+    $('versionPreview').textContent = 'Kliknij POKAZ przy wybranej wersji.';
+
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (activeTab === 'query-plan') {
+      refreshQueryPlanContext();
+    } else if (activeTab === 'results') {
+      refreshLatestMetaResearchForProject();
+    }
+  } catch (error) {
+    $('selectedProjectMeta').innerHTML = `<span class="bad">BLAD: ${escapeHtml(error.message)}</span>`;
+  }
+}
+
+async function previewVersion(versionId) {
+  try {
+    const res = await fetch(`/api/plan-versions/${encodeURIComponent(versionId)}`);
+    const payload = await res.json();
+
+    if (!res.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    renderVersionPreview(payload);
+  } catch (error) {
+    $('versionPreview').innerHTML = `<span class="bad">BLAD podgladu: ${escapeHtml(error.message)}</span>`;
+  }
+}
+
+async function loadVersionIntoWorkbench(versionId) {
+  if (!selectedSavedProject) {
+    alert('Najpierw wybierz projekt.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/plan-versions/${encodeURIComponent(versionId)}`);
+    const payload = await res.json();
+
+    if (!res.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    const brief = selectedSavedProject.project.brief;
+    applyBriefToForm(brief);
+
+    projectId = selectedSavedProject.project.id;
+    localStorage.setItem('marketRadarProjectId', projectId);
+    $('projectIdText').textContent = projectId;
+
+    conversation = [];
+    revisionNumber = 0;
+
+    setCurrentPlan(payload.plan, {
+      sourceLabel: `SQL load v${payload.version.versionNumber}`,
+      origin: payload.version.sourceEvent,
+      persistedVersionId: payload.version.id,
+      persistedVersionNumber: payload.version.versionNumber,
+      dirty: false,
+      addHistory: true,
+    });
+
+    $('saveResult').textContent = `✓ wczytano zapisany plan v${payload.version.versionNumber}`;
+    refreshQueryPlanContext();
+    setActiveTab('workbench');
+  } catch (error) {
+    alert(`BLAD wczytywania: ${error.message}`);
+  }
+}
+
+function getActiveQueryPlanProject() {
+  const selectedProjectId = selectedSavedProject?.project?.id;
+  const selectedCountry = selectedSavedProject?.project?.brief?.market?.country;
+
+  return {
+    projectId: selectedProjectId || projectId,
+    country: selectedCountry || collectBriefFromForm().market.country || 'PL',
+    name: selectedSavedProject?.project?.name || collectBriefFromForm().projectName || '—',
+  };
+}
+
+function normalizeQueryText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function countQueryTerms(value) {
+  const normalized = normalizeQueryText(value);
+  if (!normalized) return 0;
+  return normalized.split(' ').length;
+}
+
+function validateSeedPlansForSave(seedPlans) {
+  const errors = [];
+
+  seedPlans.forEach((seedPlan, seedIndex) => {
+    const seen = new Set();
+
+    (seedPlan.queries || []).forEach((query, queryIndex) => {
+      const text = normalizeQueryText(query.text);
+      const terms = countQueryTerms(text);
+      const duplicateKey = text.toLowerCase();
+
+      if (!text) {
+        errors.push(`Seed ${seedIndex + 1}, query ${queryIndex + 1}: query nie moze byc puste.`);
+      }
+
+      if (terms < 2 || terms > 3) {
+        errors.push(`Seed ${seedIndex + 1}, query ${queryIndex + 1}: query musi miec 2-3 slowa.`);
+      }
+
+      if (text) {
+        if (seen.has(duplicateKey)) {
+          errors.push(`Seed ${seedIndex + 1}: duplikat query "${text}".`);
+        }
+        seen.add(duplicateKey);
+      }
+
+      if (!QUERY_TYPES.includes(query.queryType)) {
+        errors.push(`Seed ${seedIndex + 1}, query ${queryIndex + 1}: niepoprawny queryType.`);
+      }
+
+      if (!Number.isFinite(Number(query.priority))) {
+        errors.push(`Seed ${seedIndex + 1}, query ${queryIndex + 1}: priority musi byc liczba.`);
+      }
+    });
+  });
+
+  return errors;
+}
+
+function normalizeQueryPlan(plan) {
+  if (!plan) return null;
+
+  return {
+    ...plan,
+    seedPlans: (Array.isArray(plan.seedPlans) ? plan.seedPlans : []).map(seedPlan => ({
+      ...seedPlan,
+      audience: Array.isArray(seedPlan.audience) ? seedPlan.audience : [],
+      formatHints: Array.isArray(seedPlan.formatHints) ? seedPlan.formatHints : [],
+      queries: (Array.isArray(seedPlan.queries) ? seedPlan.queries : []).map((query, index) => {
+        const text = normalizeQueryText(query.text);
+        return {
+          ...query,
+          text,
+          termCount: countQueryTerms(text),
+          queryType: QUERY_TYPES.includes(query.queryType) ? query.queryType : 'CORE',
+          priority: Number.isFinite(Number(query.priority)) ? Number(query.priority) : 50,
+          rationale: String(query.rationale || ''),
+          enabled: query.enabled !== false,
+          sortOrder: Number.isFinite(Number(query.sortOrder)) ? Number(query.sortOrder) : index,
+        };
+      }),
+    })),
+  };
+}
+
+function renderQueryPlanProjectMeta() {
+  const active = getActiveQueryPlanProject();
+  $('queryPlanProjectMeta').innerHTML = [
+    `<strong>${escapeHtml(active.name)}</strong>`,
+    `projectId: ${escapeHtml(active.projectId)}`,
+    `country: ${escapeHtml(active.country)}`,
+  ].join('<br>');
+}
+
+function renderQueryPlanSeedSourceList() {
+  const root = $('queryPlanSeedSourceList');
+
+  if (!queryPlanContext || !Array.isArray(queryPlanContext.seeds) || !queryPlanContext.seeds.length) {
+    root.innerHTML = '<div class="muted">Brak seedow w najnowszym planie projektu.</div>';
+    $('queryPlanSeedSelectionSummary').textContent = 'Brak seedow w najnowszym planie projektu.';
+    return;
+  }
+
+  const selectedCount = queryPlanSelectedSeedIds.size;
+  const totalCount = queryPlanContext.seeds.length;
+  $('queryPlanSeedSelectionSummary').textContent = `Wybrane do MR03: ${selectedCount} / ${totalCount}. Usuniecie dziala lokalnie (tylko dla kolejnej generacji).`;
+
+  root.innerHTML = queryPlanContext.seeds.map(seed => `
+    <div class="seed-inspect-item">
+      <div class="seed-select-row">
+        <input type="checkbox" class="query-plan-seed-checkbox" data-seed-id="${escapeHtml(seed.seedId)}" ${queryPlanSelectedSeedIds.has(String(seed.seedId)) ? 'checked' : ''}>
+        <div>
+          <strong>${escapeHtml(seed.text)}</strong><br>
+          <span class="tiny">seedId: ${escapeHtml(seed.seedId)} · source: ${escapeHtml(seed.source)} · enabled: ${seed.enabled ? 'true' : 'false'}</span>
+        </div>
+        <button class="seed-remove-btn" data-remove-seed-id="${escapeHtml(seed.seedId)}">Usun</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderQueryPlanSummary() {
+  if (!currentQueryPlan) {
+    $('queryPlanSummary').textContent = 'Brak Query Planu. Kliknij GENERUJ QUERY PLAN.';
+    $('queryPlanRawOutput').textContent = 'Brak.';
+    $('queryPlanEditor').innerHTML = '<div class="muted">Brak danych do edycji.</div>';
+    $('queryPlanValidation').textContent = '';
+    $('queryPlanSaveBtn').disabled = true;
+    $('queryPlanApproveBtn').disabled = true;
+    $('metaResearchStartBtn').disabled = true;
+    return;
+  }
+
+  const seedCount = currentQueryPlan.seedPlans.length;
+  const queryCount = currentQueryPlan.seedPlans.reduce((acc, seed) => acc + seed.queries.length, 0);
+
+  $('queryPlanSummary').innerHTML = [
+    `<strong>ID:</strong> ${escapeHtml(currentQueryPlan.id)}`,
+    `<strong>Status:</strong> ${escapeHtml(currentQueryPlan.status)}`,
+    `<strong>Planner:</strong> ${escapeHtml(currentQueryPlan.plannerVersion)}`,
+    `<strong>Seeds:</strong> ${escapeHtml(seedCount)}`,
+    `<strong>Queries:</strong> ${escapeHtml(queryCount)}`,
+    `<strong>Updated:</strong> ${escapeHtml(formatDateTime(currentQueryPlan.updatedAt))}`,
+  ].join('<br>');
+
+  const errors = validateSeedPlansForSave(currentQueryPlan.seedPlans);
+  $('queryPlanValidation').textContent = errors.length ? errors.slice(0, 3).join(' ') : '';
+
+  $('queryPlanRawOutput').textContent = JSON.stringify(currentQueryPlan, null, 2);
+  $('queryPlanSaveBtn').disabled = false;
+  $('queryPlanApproveBtn').disabled = false;
+  $('metaResearchStartBtn').disabled = currentQueryPlan.status !== 'APPROVED' || currentQueryPlanDirty;
+
+  const typeOptions = QUERY_TYPES.map(type => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join('');
+
+  $('queryPlanEditor').innerHTML = currentQueryPlan.seedPlans.map((seedPlan, seedIndex) => {
+    const queries = seedPlan.queries.map((query, queryIndex) => {
+      const queryTypeSelect = `<select class="query-type" data-seed-index="${seedIndex}" data-query-index="${queryIndex}">${typeOptions}</select>`;
+
+      return `
+        <tr>
+          <td><input type="checkbox" class="query-enabled query-row-enabled" data-seed-index="${seedIndex}" data-query-index="${queryIndex}" ${query.enabled ? 'checked' : ''}></td>
+          <td><input type="text" class="query-text" data-seed-index="${seedIndex}" data-query-index="${queryIndex}" value="${escapeHtml(query.text)}" placeholder="2-3 slowa"></td>
+          <td>${queryTypeSelect}</td>
+          <td><input type="number" class="query-priority" data-seed-index="${seedIndex}" data-query-index="${queryIndex}" value="${escapeHtml(query.priority)}"></td>
+          <td>${escapeHtml(query.termCount)}</td>
+          <td class="query-rationale-cell"><textarea class="query-rationale" data-seed-index="${seedIndex}" data-query-index="${queryIndex}">${escapeHtml(query.rationale)}</textarea></td>
+          <td><button class="query-delete" data-seed-index="${seedIndex}" data-query-index="${queryIndex}">Usun</button></td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="query-plan-seed">
+        <h4>Seed: ${escapeHtml(seedPlan.seedText)}</h4>
+        <div class="tiny">sourceSeedId: ${escapeHtml(seedPlan.sourceSeedId)} · source: ${escapeHtml(seedPlan.sourceSeedOrigin || '—')}</div>
+        <div class="tiny" style="margin-top:4px">Concept: ${escapeHtml(seedPlan.concept || '—')}</div>
+        <div class="query-plan-editor-table-wrap">
+          <table class="query-plan-editor-table">
+            <thead>
+              <tr>
+                <th style="width:38px">On</th>
+                <th style="width:260px">Query</th>
+                <th style="width:130px">Type</th>
+                <th style="width:90px">Prio</th>
+                <th style="width:70px">Slowa</th>
+                <th>Rationale</th>
+                <th style="width:80px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${queries || '<tr><td colspan="7" class="muted">Brak query.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        <div class="actions" style="margin-top:8px">
+          <button class="secondary add-query-btn" data-seed-index="${seedIndex}">+ Dodaj query</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  for (const select of $('queryPlanEditor').querySelectorAll('.query-type')) {
+    const seedIndex = Number(select.dataset.seedIndex);
+    const queryIndex = Number(select.dataset.queryIndex);
+    const value = currentQueryPlan.seedPlans[seedIndex].queries[queryIndex].queryType;
+    select.value = QUERY_TYPES.includes(value) ? value : 'CORE';
+  }
+}
+
+function markQueryPlanDirty() {
+  currentQueryPlanDirty = true;
+  renderQueryPlanSummary();
+}
+
+function getEditableQuery(seedIndex, queryIndex) {
+  const seedPlan = currentQueryPlan?.seedPlans?.[seedIndex];
+  if (!seedPlan) return null;
+  return seedPlan.queries?.[queryIndex] || null;
+}
+
+function buildQueryPlanSavePayload() {
+  return {
+    seedPlans: currentQueryPlan.seedPlans.map(seedPlan => ({
+      sourceSeedId: seedPlan.sourceSeedId,
+      sourceSeedOrigin: seedPlan.sourceSeedOrigin,
+      seedText: seedPlan.seedText,
+      concept: seedPlan.concept || '',
+      audience: Array.isArray(seedPlan.audience) ? seedPlan.audience : [],
+      formatHints: Array.isArray(seedPlan.formatHints) ? seedPlan.formatHints : [],
+      queries: seedPlan.queries.map(query => ({
+        text: normalizeQueryText(query.text),
+        queryType: query.queryType,
+        priority: Number(query.priority),
+        rationale: String(query.rationale || ''),
+        enabled: query.enabled !== false,
+      })),
+    })),
+  };
+}
+
+async function refreshQueryPlanContext() {
+  const active = getActiveQueryPlanProject();
+  renderQueryPlanProjectMeta();
+  $('queryPlanActionOk').textContent = '';
+  $('queryPlanActionErr').textContent = '';
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(active.projectId)}/query-plan`);
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    queryPlanContext = payload;
+    currentQueryPlan = payload.queryPlan ? normalizeQueryPlan(payload.queryPlan) : null;
+    currentQueryPlanDirty = false;
+    const defaultSelected = (Array.isArray(payload.seeds) ? payload.seeds : []).filter(seed => seed.enabled).map(seed => String(seed.seedId));
+    const fallbackAll = (Array.isArray(payload.seeds) ? payload.seeds : []).map(seed => String(seed.seedId));
+    queryPlanSelectedSeedIds = new Set(defaultSelected.length ? defaultSelected : fallbackAll);
+
+    renderQueryPlanProjectMeta();
+    renderQueryPlanSeedSourceList();
+    renderQueryPlanSummary();
+    await refreshLatestMetaResearchForProject();
+  } catch (error) {
+    queryPlanContext = null;
+    currentQueryPlan = null;
+    currentQueryPlanDirty = false;
+
+    renderQueryPlanProjectMeta();
+    $('queryPlanSeedSourceList').innerHTML = `<div class="bad">BLAD: ${escapeHtml(error.message)}</div>`;
+    renderQueryPlanSummary();
+    renderMetaResearchSummary(null);
+    $('queryPlanActionErr').textContent = `BLAD odczytu kontekstu: ${error.message}`;
+  }
+}
+
+async function generateQueryPlan() {
+  const active = getActiveQueryPlanProject();
+  const maxQueriesPerSeed = Number($('queryPlanMaxQueries').value || 6);
+
+  $('queryPlanActionOk').textContent = '';
+  $('queryPlanActionErr').textContent = '';
+
+  try {
+    const selectedSeedIds = Array.from(queryPlanSelectedSeedIds);
+    if (!selectedSeedIds.length) {
+      throw new Error('Wybierz co najmniej jeden seed do generacji MR03.');
+    }
+
+    const res = await fetch(`/api/projects/${encodeURIComponent(active.projectId)}/query-plan/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        country: active.country,
+        maxQueriesPerSeed,
+        seedIds: selectedSeedIds,
+      }),
+    });
+
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    currentQueryPlan = normalizeQueryPlan(payload.queryPlan);
+    currentQueryPlanDirty = false;
+    $('queryPlanActionOk').textContent = '✓ Query Plan wygenerowany i zapisany jako DRAFT.';
+
+    await refreshQueryPlanContext();
+  } catch (error) {
+    $('queryPlanActionErr').textContent = `BLAD generacji MR03: ${error.message}`;
+  }
+}
+
+async function saveQueryPlanDraft() {
+  $('queryPlanActionOk').textContent = '';
+  $('queryPlanActionErr').textContent = '';
+
+  if (!currentQueryPlan) {
+    $('queryPlanActionErr').textContent = 'Brak Query Planu do zapisu.';
+    return;
+  }
+
+  const errors = validateSeedPlansForSave(currentQueryPlan.seedPlans);
+  if (errors.length) {
+    $('queryPlanActionErr').textContent = errors[0];
+    renderQueryPlanSummary();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/query-plans/${encodeURIComponent(currentQueryPlan.id)}/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildQueryPlanSavePayload()),
+    });
+
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    currentQueryPlan = normalizeQueryPlan(payload.queryPlan);
+    currentQueryPlanDirty = false;
+    $('queryPlanActionOk').textContent = '✓ Zapisano Query Plan jako DRAFT.';
+    renderQueryPlanSummary();
+  } catch (error) {
+    $('queryPlanActionErr').textContent = `BLAD zapisu Query Planu: ${error.message}`;
+  }
+}
+
+async function approveQueryPlan() {
+  $('queryPlanActionOk').textContent = '';
+  $('queryPlanActionErr').textContent = '';
+
+  if (!currentQueryPlan) {
+    $('queryPlanActionErr').textContent = 'Brak Query Planu do zatwierdzenia.';
+    return;
+  }
+
+  if (currentQueryPlanDirty) {
+    $('queryPlanActionErr').textContent = 'Najpierw zapisz zmiany.';
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/query-plans/${encodeURIComponent(currentQueryPlan.id)}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    currentQueryPlan = normalizeQueryPlan(payload.queryPlan);
+    currentQueryPlanDirty = false;
+    $('queryPlanActionOk').textContent = payload.message || 'Query Plan zatwierdzony.';
+    renderQueryPlanSummary();
+  } catch (error) {
+    $('queryPlanActionErr').textContent = `BLAD zatwierdzenia: ${error.message}`;
+  }
+}
+
+function stopMetaResearchPolling() {
+  if (metaResearchPollHandle) {
+    clearInterval(metaResearchPollHandle);
+    metaResearchPollHandle = null;
+  }
+}
+
+function renderMetaResearchSummary(run) {
+  if (!run) {
+    $('metaResearchStatus').textContent = 'Brak uruchomionego badania.';
+    $('metaResearchProgress').style.display = 'none';
+    $('metaResearchSummary').innerHTML = '';
+    $('metaRelevanceSummary').style.display = 'none';
+    $('metaRelevanceSummary').textContent = '';
+    $('metaRelevanceRunStatus').textContent = '';
+    $('metaAdsBody').innerHTML = '<tr><td colspan="1" class="muted">Brak danych.</td></tr>';
+    $('metaExportFullCsvBtn').disabled = true;
+    $('metaExportShortCsvBtn').disabled = true;
+    $('metaRunRelevanceBtn').disabled = true;
+    currentMetaAds = [];
+    currentOfferFamilies = [];
+    currentMetaRelevanceSummary = null;
+    applyMetaLifecycleFilterOptionLabels(null);
+    renderOfferFamilies([]);
+    return;
+  }
+
+  const duplicates = Number.isFinite(Number(run.duplicatesCount))
+    ? Number(run.duplicatesCount)
+    : Math.max((run.fetchedCount || 0) - (run.uniqueAdsTotal || 0), 0);
+  const breakdown = run.lifecycleBreakdown || {};
+
+  $('metaResearchStatus').innerHTML = [
+    `<strong>Status:</strong> ${escapeHtml(run.status)}`,
+    `<strong>Etap:</strong> ${escapeHtml(run.progressStage || '—')}`,
+    `<strong>Run ID:</strong> ${escapeHtml(run.id)}`,
+    `<strong>Provider:</strong> ${escapeHtml(run.provider || 'APIFY')}`,
+    `<strong>Started:</strong> ${escapeHtml(formatDateTime(run.startedAt))}`,
+    `<strong>Finished:</strong> ${escapeHtml(formatDateTime(run.finishedAt))}`,
+  ].join('<br>');
+
+  const isRunning = run.status === 'PENDING' || run.status === 'RUNNING';
+  $('metaResearchStartBtn').disabled = isRunning || currentQueryPlan?.status !== 'APPROVED' || currentQueryPlanDirty;
+  $('metaRunRelevanceBtn').disabled = isRunning || metaRelevanceBusy;
+
+  if (isRunning) {
+    $('metaResearchProgress').style.display = 'block';
+    $('metaResearchProgress').innerHTML = [
+      escapeHtml(run.progressStage || 'Badanie trwa...'),
+      `${escapeHtml(run.queriesCompleted)} / ${escapeHtml(run.queriesTotal)} query`,
+      `Pobrane rekordy: ${escapeHtml(run.fetchedCount || 0)}`,
+      `Unikalne reklamy: ${escapeHtml(run.uniqueAdsTotal || 0)}`,
+    ].join('<br>');
+  } else {
+    $('metaResearchProgress').style.display = 'none';
+  }
+
+  const summaryItems = [
+    ['Query (unikalne)', run.queriesTotal],
+    ['Wykonane unikalne wyszukiwania', run.queriesCompleted],
+    ['Pobrane rekordy', run.fetchedCount || 0],
+    ['Unique ads', run.uniqueAdsTotal],
+    ['Duplikaty miedzy query', duplicates],
+    ['Errors', run.errorsTotal],
+    ['Balony probne', breakdown.BALON_PROBNY || 0],
+    ['Test w toku', breakdown.TEST_W_TOKU || 0],
+    ['Rokujace', breakdown.ROKUJACA || 0],
+    ['Mocne', breakdown.MOCNA || 0],
+    ['Evergreen', breakdown.EVERGREEN || 0],
+  ];
+
+  $('metaResearchSummary').innerHTML = summaryItems.map(([label, value]) => `
+    <div class="meta-kv">
+      <div class="tiny">${escapeHtml(label)}</div>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `).join('');
+}
+
+function applyMetaRelevanceFilterOptionLabels(summary) {
+  const select = $('metaFilterRelevance');
+  const baseLabels = {
+    USEFUL: 'Relevance: UZYTECZNE',
+    KEEP: 'Relevance: KEEP',
+    POTENTIAL: 'Relevance: POTENCJALNE',
+    UNREVIEWED: 'Relevance: NIESPRAWDZONE',
+    REJECT: 'Relevance: SMIECI',
+    ALL: 'Relevance: WSZYSTKIE',
+  };
+
+  for (const option of select.options) {
+    option.textContent = baseLabels[option.value] || option.value;
+  }
+
+  if (!summary) return;
+
+  const byValue = {
+    USEFUL: summary.useful ?? 0,
+    KEEP: summary.keep ?? 0,
+    POTENTIAL: summary.potential ?? 0,
+    UNREVIEWED: summary.unreviewed ?? 0,
+    REJECT: summary.reject ?? 0,
+    ALL: summary.all ?? 0,
+  };
+
+  for (const option of select.options) {
+    if (Object.prototype.hasOwnProperty.call(byValue, option.value)) {
+      option.textContent = `${baseLabels[option.value]} (${byValue[option.value]})`;
+    }
+  }
+}
+
+function getSelectedLifecycleFilters() {
+  return [...document.querySelectorAll('.meta-lifecycle-check:checked')]
+    .map(checkbox => checkbox.value)
+    .filter(Boolean);
+}
+
+function setLifecycleFiltersSelected(value) {
+  for (const checkbox of document.querySelectorAll('.meta-lifecycle-check')) {
+    checkbox.checked = value;
+  }
+}
+
+function applyMetaLifecycleFilterOptionLabels(summary) {
+  for (const lifecycle of LIFECYCLE_FILTER_VALUES) {
+    const label = document.querySelector(`[data-lifecycle-label="${lifecycle}"]`);
+    if (!label) continue;
+
+    const base = LIFECYCLE_LABELS[lifecycle] || lifecycle;
+    const count = summary && Number.isFinite(Number(summary[lifecycle]))
+      ? Number(summary[lifecycle])
+      : null;
+
+    label.textContent = count == null ? base : `${base} (${count})`;
+  }
+}
+
+function renderMetaRelevanceSummary(summary) {
+  currentMetaRelevanceSummary = summary || null;
+  applyMetaRelevanceFilterOptionLabels(currentMetaRelevanceSummary);
+
+  if (!summary) {
+    $('metaRelevanceSummary').style.display = 'none';
+    $('metaRelevanceSummary').textContent = '';
+    return;
+  }
+
+  const trashCount = (Number(summary.reject || 0) + Number(summary.potential || 0));
+
+  $('metaRelevanceSummary').style.display = 'block';
+  $('metaRelevanceSummary').innerHTML = [
+    `<strong>Uzyteczne:</strong> ${escapeHtml(summary.useful ?? 0)}`,
+    `KEEP: ${escapeHtml(summary.keep ?? 0)}`,
+    `POTENCJALNE: ${escapeHtml(summary.potential ?? 0)}`,
+    `Niesprawdzone: ${escapeHtml(summary.unreviewed ?? 0)}`,
+    `<strong>Smieci:</strong> ${escapeHtml(trashCount)} (REJECT + POTENCJALNE)`,
+    `Wszystkie: ${escapeHtml(summary.all ?? 0)}`,
+  ].join('<br>');
+}
+
+function getSelectedFamilyFilters() {
+  return {
+    familyClass: $('metaFamilyClassFilter').value || 'ALL',
+    familyStatus: $('metaFamilyStatusFilter').value || 'ALL',
+    familyPattern: $('metaFamilyPatternFilter').value || 'ALL',
+  };
+}
+
+function summarizeOfferFamilies(families) {
+  const list = Array.isArray(families) ? families : [];
+  if (!list.length) {
+    $('offerFamilySummary').textContent = 'Brak rodzin ofert.';
+    return;
+  }
+
+  const classCounts = {
+    TEST_ONLY: 0,
+    REPEATED_TEST: 0,
+    PROMISING: 0,
+    ESTABLISHED: 0,
+    EVERGREEN: 0,
+    UNCLASSIFIED: 0,
+  };
+
+  for (const family of list) {
+    if (Object.prototype.hasOwnProperty.call(classCounts, family.familyClass)) {
+      classCounts[family.familyClass] += 1;
+    }
+  }
+
+  $('offerFamilySummary').textContent = [
+    `Rodziny: ${list.length}`,
+    `Evergreen: ${classCounts.EVERGREEN}`,
+    `Established: ${classCounts.ESTABLISHED}`,
+    `Promising: ${classCounts.PROMISING}`,
+  ].join(' | ');
+}
+
+function renderOfferFamilies(families) {
+  const list = Array.isArray(families) ? families : [];
+  summarizeOfferFamilies(list);
+
+  if (!list.length) {
+    $('offerFamilyList').innerHTML = '<div class="muted">Brak rodzin ofert dla obecnych filtrow.</div>';
+    return;
+  }
+
+  $('offerFamilyList').innerHTML = list.map(family => {
+    const patterns = Array.isArray(family.familyPatterns) && family.familyPatterns.length
+      ? family.familyPatterns.join(' | ')
+      : 'BRAK';
+
+    const members = Array.isArray(family.members) ? family.members : [];
+    const timeline = members.map((member, index) => {
+      const start = formatDateTime(member.startDate) || 'brak daty startu';
+      const end = formatDateTime(member.endDate) || (member.isActive ? 'aktywna' : 'brak daty konca');
+      const duration = Number.isFinite(Number(member.runtimeDays)) ? `${member.runtimeDays} dni` : 'n/d';
+      const relation = index === 0 ? '' : `<div class="rel">-> ${escapeHtml(member.relationshipType || 'UNKNOWN')}</div>`;
+
+      return `${relation}<div>${escapeHtml(start)} -> ${escapeHtml(end)} | ${escapeHtml(duration)} | ${escapeHtml(member.title || member.adArchiveId || member.metaAdId || 'reklama')}</div>`;
+    }).join('');
+
+    return `
+      <div class="offer-family-card">
+        <div class="offer-family-head">
+          <div class="offer-family-class">${escapeHtml(family.familyClass || 'UNCLASSIFIED')} · ${escapeHtml(family.familyStatus || 'UNKNOWN')}</div>
+          <div class="offer-family-score">${escapeHtml(family.familyConfidence ?? 0)}%</div>
+        </div>
+        <div class="offer-family-meta">
+          <span>Ads: ${escapeHtml(family.adsCount ?? 0)}</span>
+          <span>Covered: ${escapeHtml(family.coveredDeliveryDays ?? 0)} dni</span>
+          <span>Successor: ${escapeHtml(family.successorCount ?? 0)}</span>
+          <span>Parallel: ${escapeHtml(family.parallelCount ?? 0)}</span>
+          <span>Relaunch: ${escapeHtml(family.relaunchCount ?? 0)}</span>
+        </div>
+        <div class="offer-family-patterns">Pattern: ${escapeHtml(patterns)}</div>
+        <div class="offer-family-reason">Powod: ${escapeHtml(family.familyReason || 'Brak opisu')}</div>
+        <div class="offer-family-timeline">${timeline}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function buildFallbackReason(ad) {
+  const lifecycle = LIFECYCLE_LABELS[ad.longevityCategory || ad.lifecycleClass] || (ad.longevityCategory || ad.lifecycleClass || 'UNCLASSIFIED');
+  const runtime = Number.isFinite(Number(ad.runtimeDays)) ? `${ad.runtimeDays} dni` : 'brak runtime';
+  return `Lifecycle ${lifecycle}; ${runtime}.`;
+}
+
+function buildShortDescription(bodyText) {
+  const source = String(bodyText || '').trim();
+  if (!source) return '';
+
+  const directLines = source
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  let lines = [];
+  if (directLines.length >= 2) {
+    lines = directLines.slice(0, 3);
+  } else {
+    const sentences = source
+      .replace(/\s+/g, ' ')
+      .split(/(?<=[.!?])\s+/)
+      .map(item => item.trim())
+      .filter(Boolean);
+
+    lines = sentences.slice(0, 3);
+    if (!lines.length) {
+      lines = [source.slice(0, 180)];
+    }
+  }
+
+  let text = lines.join('\n');
+  if (text.length > 480) {
+    text = `${text.slice(0, 477)}...`;
+  }
+
+  return text;
+}
+
+function prepareAdsForFamilyCsv() {
+  const dedup = new Map();
+  for (const ad of currentMetaAds || []) {
+    if (!ad?.metaAdId) continue;
+    if (!dedup.has(ad.metaAdId)) {
+      dedup.set(ad.metaAdId, ad);
+    }
+  }
+
+  const ads = [...dedup.values()];
+  ads.sort((left, right) => {
+    const leftClassIndex = FAMILY_CLASS_ORDER.indexOf(left.familyClass || 'UNCLASSIFIED');
+    const rightClassIndex = FAMILY_CLASS_ORDER.indexOf(right.familyClass || 'UNCLASSIFIED');
+    const aClass = leftClassIndex === -1 ? FAMILY_CLASS_ORDER.length : leftClassIndex;
+    const bClass = rightClassIndex === -1 ? FAMILY_CLASS_ORDER.length : rightClassIndex;
+    if (aClass !== bClass) return aClass - bClass;
+
+    if ((left.familyId || '') !== (right.familyId || '')) {
+      return String(left.familyId || '').localeCompare(String(right.familyId || ''));
+    }
+
+    if (Number.isFinite(Number(left.familySortOrder)) && Number.isFinite(Number(right.familySortOrder))) {
+      if (left.familySortOrder !== right.familySortOrder) {
+        return left.familySortOrder - right.familySortOrder;
+      }
+    }
+
+    const leftStart = new Date(left.startDate || left.firstSeenAt || 0).getTime();
+    const rightStart = new Date(right.startDate || right.firstSeenAt || 0).getTime();
+    return leftStart - rightStart;
+  });
+
+  return ads;
+}
+
+function renderAdDetailsModalContent(ad) {
+  if (!ad) {
+    return '<div class="ad-details-section"><h4>Brak danych</h4><p>Nie znaleziono rekordu reklamy.</p></div>';
+  }
+
+  const rawJson = ad.rawJson && typeof ad.rawJson === 'object' ? ad.rawJson : {};
+  const lifecycleKey = ad.longevityCategory || ad.lifecycleClass;
+  const lifecycleLabel = LIFECYCLE_LABELS[lifecycleKey] || lifecycleKey || '—';
+
+  const basicFields = [
+    ['Tytuł', ad.title || rawJson.title || rawJson.name || '—'],
+    ['Treść', ad.bodyText || rawJson.bodyText || rawJson.body_text || '—'],
+    ['Strona / reklamodawca', ad.pageName || ad.pageId || rawJson.pageName || rawJson.page_name || '—'],
+    ['Status aktywności', ad.isActive ? 'Aktywna' : 'Zakończona'],
+    ['Start', formatDateTime(ad.startDate || ad.adDeliveryStartTime) || '—'],
+    ['Stop', formatDateTime(ad.endDate || ad.adDeliveryStopTime) || '—'],
+    ['EU reach', ad.euTotalReach ?? rawJson.euTotalReach ?? '—'],
+    ['Likes', ad.pageLikeCount ?? rawJson.pageLikeCount ?? '—'],
+    ['Snapshot', ad.adLibraryUrl || ad.adSnapshotUrl || rawJson.adLibraryUrl || rawJson.ad_library_url || '—'],
+  ];
+
+  const lifecycleFields = [
+    ['Kategoria lifecycle', lifecycleLabel],
+    ['Pewność', Number.isFinite(Number(ad.lifecycleConfidence)) ? `${ad.lifecycleConfidence}%` : '—'],
+    ['Runtime', Number.isFinite(Number(ad.runtimeDays)) ? `${ad.runtimeDays} dni` : '—'],
+    ['Powód', Array.isArray(ad.lifecycleReasons) && ad.lifecycleReasons.length ? ad.lifecycleReasons.join(' | ') : '—'],
+  ];
+
+  const relevanceFields = [
+    ['Relevance', RELEVANCE_LABELS[normalizeRelevanceStatus(ad.relevanceStatus)] || normalizeRelevanceStatus(ad.relevanceStatus) || '—'],
+    ['Źródło relevance', ad.relevanceSource || 'MR04'],
+    ['MR04 decision', ad.mr04Decision || '—'],
+    ['MR04 confidence', Number.isFinite(Number(ad.mr04Confidence)) ? `${ad.mr04Confidence}%` : '—'],
+    ['Powód MR04', ad.mr04Reason || ad.mr04ReasonCode || '—'],
+    ['Manual override', ad.manualOverride ? 'Tak' : 'Nie'],
+  ];
+
+  const detailFields = [
+    ['Family class', ad.familyClass || 'UNCLASSIFIED'],
+    ['Family status', ad.familyStatus || 'UNKNOWN'],
+    ['Family confidence', Number.isFinite(Number(ad.familyConfidence)) ? `${ad.familyConfidence}%` : '—'],
+    ['Family patterns', Array.isArray(ad.familyPatterns) && ad.familyPatterns.length ? ad.familyPatterns.join(' | ') : '—'],
+    ['Family reason', ad.familyReason || '—'],
+    ['Relationship', ad.relationshipToPrevious || 'FIRST'],
+    ['Canonical URL', ad.canonicalUrl || '—'],
+    ['Collation ID', ad.collationId || '—'],
+  ];
+
+  const basicHtml = basicFields.map(([label, value]) => `
+    <div class="ad-details-item">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${escapeHtml(String(value ?? '—'))}</span>
+    </div>
+  `).join('');
+
+  const lifecycleHtml = lifecycleFields.map(([label, value]) => `
+    <div class="ad-details-item">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${escapeHtml(String(value ?? '—'))}</span>
+    </div>
+  `).join('');
+
+  const relevanceHtml = relevanceFields.map(([label, value]) => `
+    <div class="ad-details-item">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${escapeHtml(String(value ?? '—'))}</span>
+    </div>
+  `).join('');
+
+  const detailsHtml = detailFields.map(([label, value]) => `
+    <div class="ad-details-item">
+      <strong>${escapeHtml(label)}</strong>
+      <span>${escapeHtml(String(value ?? '—'))}</span>
+    </div>
+  `).join('');
+
+  return `
+    <div class="ad-details-section">
+      <h4>Podstawowe informacje</h4>
+      <div class="ad-details-grid">${basicHtml}</div>
+    </div>
+    <div class="ad-details-section">
+      <h4>Lifecycle</h4>
+      <div class="ad-details-grid">${lifecycleHtml}</div>
+    </div>
+    <div class="ad-details-section">
+      <h4>Relevance</h4>
+      <div class="ad-details-grid">${relevanceHtml}</div>
+    </div>
+    <div class="ad-details-section">
+      <h4>Metadane reklam</h4>
+      <div class="ad-details-grid">${detailsHtml}</div>
+    </div>
+  `;
+}
+
+function openAdDetailsModal(adArchiveId) {
+  const ad = currentMetaAds.find(item => String(item.adArchiveId || item.metaAdId || '') === String(adArchiveId));
+  if (!ad) return;
+
+  const modal = $('adDetailsModalBackdrop');
+  $('adDetailsContent').innerHTML = renderAdDetailsModalContent(ad);
+  modal.classList.add('visible');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeAdDetailsModal() {
+  const modal = $('adDetailsModalBackdrop');
+  modal.classList.remove('visible');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function renderMetaAdsTable(ads) {
+  if (!Array.isArray(ads) || !ads.length) {
+    $('metaAdsBody').innerHTML = '<tr><td colspan="1" class="muted">Brak reklam dla tego filtra.</td></tr>';
+    return;
+  }
+
+  $('metaAdsBody').innerHTML = ads.map(ad => {
+    const bodyPreview = ad.bodyText || ad.title || (ad.creativeBodies && ad.creativeBodies[0]) || (ad.creativeLinkTitles && ad.creativeLinkTitles[0]) || '';
+    const titlePreview = ad.title || (ad.creativeLinkTitles && ad.creativeLinkTitles[0]) || '';
+    const lifecycleKey = ad.longevityCategory || ad.lifecycleClass;
+    const lifecycle = LIFECYCLE_LABELS[lifecycleKey] || lifecycleKey || '—';
+    const confidence = Number.isFinite(Number(ad.lifecycleConfidence)) ? `${ad.lifecycleConfidence}%` : '—';
+    const reasons = Array.isArray(ad.lifecycleReasons) ? ad.lifecycleReasons.join(' | ') : '';
+    const queries = Array.isArray(ad.matchedQueries) ? ad.matchedQueries.join(', ') : '';
+    const categories = Array.isArray(ad.matchedCategories) ? ad.matchedCategories.join(', ') : '';
+    const seeds = Array.isArray(ad.matchedSeeds) ? ad.matchedSeeds.join(', ') : '';
+    const relevanceStatus = normalizeRelevanceStatus(ad.relevanceStatus);
+    const relevanceSource = ad.relevanceSource || 'MR04';
+    const relevanceLabel = RELEVANCE_LABELS[relevanceStatus] || relevanceStatus;
+    const mr04Confidence = Number.isFinite(Number(ad.mr04Confidence)) ? `${ad.mr04Confidence}%` : '—';
+    const mr04Reason = ad.mr04Reason || ad.mr04ReasonCode || '—';
+    const allowRestore = ad.manualOverride && ad.mr04Decision;
+
+    const snapshotUrl = ad.adLibraryUrl || ad.adSnapshotUrl;
+    const snapshotCell = snapshotUrl
+      ? `<a href="${escapeHtml(snapshotUrl)}" target="_blank" rel="noopener noreferrer">Otworz reklame w Meta</a>`
+      : '—';
+
+    return `
+      <tr>
+        <td>
+          <div class="ad-row-card">
+            <div class="meta-inline-controls">
+              <span class="relevance-badge ${relevanceBadgeClass(relevanceStatus)}">Relevance: ${escapeHtml(relevanceLabel)}</span>
+              <button class="secondary ad-details-btn" type="button" data-ad-archive-id="${escapeHtml(ad.adArchiveId || '')}">SZCZEGÓŁY</button>
+              <select class="ad-relevance-select" data-ad-archive-id="${escapeHtml(ad.adArchiveId || '')}" ${ad.adArchiveId ? '' : 'disabled'}>
+                <option value="KEEP" ${relevanceStatus === 'KEEP' ? 'selected' : ''}>KEEP</option>
+                <option value="POTENTIAL" ${relevanceStatus === 'POTENTIAL' ? 'selected' : ''}>POTENCJALNE</option>
+                <option value="REJECT" ${relevanceStatus === 'REJECT' ? 'selected' : ''}>SMIEC</option>
+              </select>
+              ${allowRestore ? `<button class="secondary ad-relevance-restore" data-ad-archive-id="${escapeHtml(ad.adArchiveId || '')}">PRZYWROC MR04</button>` : ''}
+            </div>
+            <div class="ad-row-meta" title="${escapeHtml(reasons)}">
+              <span><strong>Source:</strong> ${escapeHtml(relevanceSource)}${ad.manualOverride ? ' (manual override)' : ''}</span>
+              <span><strong>MR04:</strong> ${escapeHtml(ad.mr04Decision || '—')} / ${escapeHtml(mr04Confidence)}</span>
+              <span><strong>Reason:</strong> ${escapeHtml(mr04Reason)}</span>
+              <span><strong>Page:</strong> ${escapeHtml(ad.pageName || ad.pageId || '—')}</span>
+              <span><strong>Start:</strong> ${escapeHtml(formatDateTime(ad.startDate || ad.adDeliveryStartTime))}</span>
+              <span><strong>Stop:</strong> ${escapeHtml(formatDateTime(ad.endDate || ad.adDeliveryStopTime))}</span>
+              <span><strong>Status:</strong> ${ad.isActive ? 'aktywna' : 'zakonczona'}</span>
+              <span><strong>Likes:</strong> ${escapeHtml(ad.pageLikeCount ?? '—')}</span>
+              <span><strong>Lifecycle:</strong> ${escapeHtml(lifecycle)} (${escapeHtml(confidence)})</span>
+              <span><strong>Visible:</strong> ${ad.visibleTextMatch == null ? 'N/D' : (ad.visibleTextMatch ? 'TAK' : 'NIE')}</span>
+              <span><strong>EU reach:</strong> ${escapeHtml(ad.euTotalReach ?? '—')}</span>
+              <span><strong>Query:</strong> ${escapeHtml(queries || '—')}</span>
+              <span><strong>Categories:</strong> ${escapeHtml(categories || '—')}</span>
+              <span><strong>Seeds:</strong> ${escapeHtml(seeds || '—')}</span>
+              <span><strong>First seen:</strong> ${escapeHtml(formatDateTime(ad.firstSeenAt))}</span>
+              <span><strong>Last seen:</strong> ${escapeHtml(formatDateTime(ad.lastSeenAt))}</span>
+              <span>${snapshotCell}</span>
+            </div>
+            <div class="ad-row-content">
+              ${titlePreview ? `<div class="title">${escapeHtml(titlePreview)}</div>` : ''}
+              ${escapeHtml(bodyPreview || '—')}
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function escapeCsv(value) {
+  const text = String(value ?? '');
+  const escaped = text.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
+
+function downloadCsvFile(fileNamePrefix, headers, rows) {
+  const content = [headers.map(escapeCsv).join(','), ...rows.map(row => row.map(escapeCsv).join(','))].join('\n');
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${fileNamePrefix}-${stamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function exportMetaAdsFullCsv() {
+  const ads = prepareAdsForFamilyCsv();
+  if (!ads.length) return;
+
+  const headers = [
+    'family_id',
+    'family_class',
+    'family_status',
+    'family_confidence',
+    'family_reason',
+    'family_patterns',
+    'family_ads_count',
+    'family_active_ads_count',
+    'family_span_days',
+    'family_covered_delivery_days',
+    'relationship_to_previous',
+    'previous_ad_id',
+    'offer_match_confidence',
+    'offer_match_reasons',
+    'ad_archive_id',
+    'page_name',
+    'page_id',
+    'page_like_count',
+    'title',
+    'body',
+    'destination_url',
+    'canonical_url',
+    'ad_library_url',
+    'start_date',
+    'end_date',
+    'duration_days',
+    'is_active',
+    'individual_lifecycle',
+    'display_format',
+    'cta_type',
+    'publisher_platform',
+    'collation_id',
+    'collation_count',
+    'matched_query',
+    'matched_seed',
+  ];
+
+  const rows = [];
+  for (const ad of ads) {
+    const lifecycle = LIFECYCLE_LABELS[ad.longevityCategory || ad.lifecycleClass] || ad.longevityCategory || ad.lifecycleClass || '';
+    rows.push([
+      ad.familyId || '',
+      ad.familyClass || 'UNCLASSIFIED',
+      ad.familyStatus || 'UNKNOWN',
+      ad.familyConfidence ?? '',
+      ad.familyReason || '',
+      Array.isArray(ad.familyPatterns) ? ad.familyPatterns.join(' | ') : '',
+      ad.familyAdsCount ?? '',
+      ad.familyActiveAdsCount ?? '',
+      ad.familyCalendarSpanDays ?? '',
+      ad.familyCoveredDeliveryDays ?? '',
+      ad.relationshipToPrevious || '',
+      ad.previousAdId || '',
+      ad.offerMatchConfidence ?? '',
+      Array.isArray(ad.offerMatchReasons) ? ad.offerMatchReasons.join(' | ') : '',
+      ad.adArchiveId || '',
+      ad.pageName || '',
+      ad.pageId || '',
+      ad.pageLikeCount ?? '',
+      ad.title || (ad.creativeLinkTitles && ad.creativeLinkTitles[0]) || '(bez tytulu)',
+      ad.bodyText || (ad.creativeBodies && ad.creativeBodies[0]) || '',
+      ad.destinationUrl || '',
+      ad.canonicalUrl || '',
+      ad.adLibraryUrl || ad.adSnapshotUrl || '',
+      ad.startDate || ad.adDeliveryStartTime || '',
+      ad.endDate || ad.adDeliveryStopTime || '',
+      ad.runtimeDays ?? '',
+      ad.isActive ? '1' : '0',
+      lifecycle,
+      ad.displayFormat || '',
+      ad.ctaType || '',
+      Array.isArray(ad.publisherPlatforms) ? ad.publisherPlatforms.join(' | ') : '',
+      ad.collationId || '',
+      ad.collationCount ?? '',
+      Array.isArray(ad.matchedQueries) ? ad.matchedQueries.join(' | ') : '',
+      Array.isArray(ad.matchedSeeds) ? ad.matchedSeeds.join(' | ') : '',
+    ]);
+
+    rows.push(['====', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+  }
+
+  downloadCsvFile('meta-ads-full', headers, rows);
+}
+
+function exportMetaAdsShortCsv() {
+  const ads = prepareAdsForFamilyCsv();
+  if (!ads.length) return;
+
+  const headers = ['title', 'link', 'like', 'reason', 'page', 'description'];
+  const rows = [];
+
+  for (const ad of ads) {
+    const title = ad.title
+      || (ad.creativeLinkTitles && ad.creativeLinkTitles[0])
+      || (ad.bodyText ? `${String(ad.bodyText).slice(0, 60)}...` : '(bez tytulu)');
+
+    const link = ad.destinationUrl || ad.adLibraryUrl || ad.adSnapshotUrl || '';
+    const reason = ad.familyReason || buildFallbackReason(ad);
+    const description = buildShortDescription(ad.bodyText || (ad.creativeBodies && ad.creativeBodies[0]) || '');
+
+    rows.push([
+      title,
+      link,
+      ad.pageLikeCount ?? '',
+      reason,
+      ad.pageName || '',
+      description,
+    ]);
+
+    rows.push(['====', '', '', '', '', '']);
+  }
+
+  downloadCsvFile('meta-ads-short', headers, rows);
+}
+
+function buildMetaAdsQueryString() {
+  const params = new URLSearchParams();
+
+  const relevance = $('metaFilterRelevance').value;
+  const query = $('metaFilterQuery').value.trim();
+  const seed = $('metaFilterSeed').value.trim();
+  const page = $('metaFilterPage').value.trim();
+  const selectedLifecycles = getSelectedLifecycleFilters();
+  const visible = $('metaFilterVisible').value;
+  const active = $('metaFilterActive').value;
+  const minReach = $('metaFilterMinReach').value.trim();
+  const startDate = $('metaFilterStartDate').value;
+  const sortBy = $('metaSortBy').value;
+  const familyFilters = getSelectedFamilyFilters();
+
+  if (relevance && relevance !== 'ALL') params.set('relevance', relevance);
+  if (query) params.set('query', query);
+  if (seed) params.set('seed', seed);
+  if (page) params.set('page', page);
+  if (!selectedLifecycles.length) {
+    params.set('lifecycle', '__NONE__');
+  } else if (selectedLifecycles.length !== LIFECYCLE_FILTER_VALUES.length) {
+    params.set('lifecycles', selectedLifecycles.join(','));
+  }
+  if (visible && visible !== 'ALL') params.set('visible', visible);
+  if (active && active !== 'ALL') params.set('active', active);
+  if (minReach) params.set('minReach', minReach);
+  if (startDate) params.set('startDate', startDate);
+  if (sortBy) params.set('sortBy', sortBy);
+  if (familyFilters.familyClass && familyFilters.familyClass !== 'ALL') params.set('familyClass', familyFilters.familyClass);
+  if (familyFilters.familyStatus && familyFilters.familyStatus !== 'ALL') params.set('familyStatus', familyFilters.familyStatus);
+  if (familyFilters.familyPattern && familyFilters.familyPattern !== 'ALL') params.set('familyPattern', familyFilters.familyPattern);
+
+  return params.toString();
+}
+
+async function loadMetaResearchAds() {
+  if (!currentMetaResearchRun?.id) {
+    $('metaAdsBody').innerHTML = '<tr><td colspan="1" class="muted">Brak danych.</td></tr>';
+    $('metaExportFullCsvBtn').disabled = true;
+    $('metaExportShortCsvBtn').disabled = true;
+    currentMetaAds = [];
+    currentOfferFamilies = [];
+    renderMetaRelevanceSummary(null);
+    applyMetaLifecycleFilterOptionLabels(null);
+    renderOfferFamilies([]);
+    return;
+  }
+
+  const qs = buildMetaAdsQueryString();
+  const url = `/api/meta-research/${encodeURIComponent(currentMetaResearchRun.id)}/ads${qs ? `?${qs}` : ''}`;
+
+  try {
+    const res = await fetch(url);
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    currentMetaAds = Array.isArray(payload.ads) ? payload.ads : [];
+    currentOfferFamilies = Array.isArray(payload.offerFamilies) ? payload.offerFamilies : [];
+    const hasExportRows = currentMetaAds.length > 0;
+    $('metaExportFullCsvBtn').disabled = !hasExportRows;
+    $('metaExportShortCsvBtn').disabled = !hasExportRows;
+    renderMetaRelevanceSummary(payload.relevanceSummary || null);
+    applyMetaLifecycleFilterOptionLabels(payload.lifecycleSummary || null);
+    renderOfferFamilies(currentOfferFamilies);
+    renderMetaAdsTable(payload.ads);
+    await refreshMr04PendingCount();
+  } catch (error) {
+    currentMetaAds = [];
+    currentOfferFamilies = [];
+    $('metaExportFullCsvBtn').disabled = true;
+    $('metaExportShortCsvBtn').disabled = true;
+    renderMetaRelevanceSummary(null);
+    applyMetaLifecycleFilterOptionLabels(null);
+    renderOfferFamilies([]);
+    $('metaAdsBody').innerHTML = `<tr><td colspan="1" class="bad">BLAD: ${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+async function loadMetaResearchRun(runId) {
+  try {
+    const res = await fetch(`/api/meta-research/${encodeURIComponent(runId)}`);
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    currentMetaResearchRun = payload.run;
+    renderMetaResearchSummary(currentMetaResearchRun);
+    await loadMetaResearchAds();
+
+    const isRunning = currentMetaResearchRun.status === 'PENDING' || currentMetaResearchRun.status === 'RUNNING';
+    if (!isRunning) {
+      stopMetaResearchPolling();
+    }
+  } catch (error) {
+    $('metaResearchStatus').textContent = `BLAD run status: ${error.message}`;
+  }
+}
+
+async function refreshLatestMetaResearchForProject() {
+  const active = getActiveQueryPlanProject();
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(active.projectId)}/meta-research/latest`);
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    currentMetaResearchRun = payload.run;
+    renderMetaResearchSummary(currentMetaResearchRun);
+
+    if (currentMetaResearchRun?.id) {
+      await loadMetaResearchAds();
+
+      const isRunning = currentMetaResearchRun.status === 'PENDING' || currentMetaResearchRun.status === 'RUNNING';
+      if (isRunning) {
+        stopMetaResearchPolling();
+        metaResearchPollHandle = setInterval(() => loadMetaResearchRun(currentMetaResearchRun.id), 4000);
+      } else {
+        stopMetaResearchPolling();
+      }
+    }
+  } catch {
+    renderMetaResearchSummary(null);
+  }
+}
+
+async function refreshMr04PendingCount() {
+  if (!currentMetaResearchRun?.projectId) {
+    $('metaRunRelevanceBtn').textContent = 'ODRZUC SMIECI';
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(currentMetaResearchRun.projectId)}/ads/relevance/pending-count`);
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    $('metaRunRelevanceBtn').textContent = `ODRZUC SMIECI (${payload.pending})`;
+  } catch {
+    $('metaRunRelevanceBtn').textContent = 'ODRZUC SMIECI';
+  }
+}
+
+async function runMetaRelevanceFilter() {
+  if (!currentMetaResearchRun?.projectId || metaRelevanceBusy) return;
+
+  $('metaRelevanceRunStatus').textContent = '';
+  metaRelevanceBusy = true;
+  $('metaRunRelevanceBtn').disabled = true;
+
+  try {
+    const pendingRes = await fetch(`/api/projects/${encodeURIComponent(currentMetaResearchRun.projectId)}/ads/relevance/pending-count`);
+    const pendingPayload = await pendingRes.json();
+
+    if (!pendingRes.ok || !pendingPayload.ok) {
+      throw new Error(pendingPayload.error || `HTTP ${pendingRes.status}`);
+    }
+
+    const pending = Number(pendingPayload.pending || 0);
+    if (!pending) {
+      $('metaRelevanceRunStatus').textContent = 'Brak reklam do analizy MR04.';
+      return;
+    }
+
+    $('metaRelevanceRunStatus').textContent = `Analizuje ${pending} reklam...`;
+
+    const runRes = await fetch(`/api/projects/${encodeURIComponent(currentMetaResearchRun.projectId)}/ads/relevance/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        force: false,
+        mode: $('mode').value,
+      }),
+    });
+    const runPayload = await runRes.json();
+
+    if (!runRes.ok || !runPayload.ok) {
+      const details = runPayload?.data?.message || runPayload?.data?.hint || runPayload?.targetUrl || '';
+      const message = runPayload.error || `HTTP ${runRes.status}`;
+      throw new Error(details ? `${message}: ${details}` : message);
+    }
+
+    $('metaRelevanceRunStatus').innerHTML = [
+      'MR04 zakonczony.',
+      `KEEP: ${escapeHtml(runPayload.keep ?? 0)}`,
+      `POTENCJALNE: ${escapeHtml(runPayload.potential ?? 0)}`,
+      `ODRZUCONE: ${escapeHtml(runPayload.reject ?? 0)}`,
+    ].join('<br>');
+
+    await loadMetaResearchAds();
+  } catch (error) {
+    $('metaRelevanceRunStatus').textContent = `BLAD MR04: ${error.message}`;
+  } finally {
+    metaRelevanceBusy = false;
+    $('metaRunRelevanceBtn').disabled = false;
+    await refreshMr04PendingCount();
+  }
+}
+
+async function setManualAdRelevance(adArchiveId, relevanceStatus) {
+  if (!currentMetaResearchRun?.projectId) return;
+
+  const res = await fetch(`/api/projects/${encodeURIComponent(currentMetaResearchRun.projectId)}/ads/${encodeURIComponent(adArchiveId)}/relevance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relevanceStatus }),
+  });
+
+  const payload = await res.json();
+  if (!res.ok || !payload.ok) {
+    throw new Error(payload.error || `HTTP ${res.status}`);
+  }
+}
+
+async function restoreAdRelevanceFromMr04(adArchiveId) {
+  if (!currentMetaResearchRun?.projectId) return;
+
+  const res = await fetch(`/api/projects/${encodeURIComponent(currentMetaResearchRun.projectId)}/ads/${encodeURIComponent(adArchiveId)}/relevance/restore-mr04`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+
+  const payload = await res.json();
+  if (!res.ok || !payload.ok) {
+    throw new Error(payload.error || `HTTP ${res.status}`);
+  }
+}
+
+async function startMetaResearch() {
+  $('queryPlanActionOk').textContent = '';
+  $('queryPlanActionErr').textContent = '';
+
+  if (!currentQueryPlan || currentQueryPlan.status !== 'APPROVED') {
+    $('queryPlanActionErr').textContent = 'Najpierw zatwierdz Query Plan (APPROVED).';
+    return;
+  }
+
+  const active = getActiveQueryPlanProject();
+  $('metaResearchStartBtn').disabled = true;
+
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(active.projectId)}/meta-research`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        queryPlanId: currentQueryPlan.id,
+      }),
+    });
+
+    const payload = await res.json();
+
+    if (!res.ok || !payload.ok) {
+      throw new Error(payload.error || `HTTP ${res.status}`);
+    }
+
+    currentMetaResearchRun = payload.run;
+    $('queryPlanActionOk').textContent = `✓ Uruchomiono badanie: ${currentMetaResearchRun.id}`;
+    renderMetaResearchSummary(currentMetaResearchRun);
+
+    stopMetaResearchPolling();
+    metaResearchPollHandle = setInterval(() => loadMetaResearchRun(currentMetaResearchRun.id), 4000);
+    await loadMetaResearchRun(currentMetaResearchRun.id);
+  } catch (error) {
+    $('queryPlanActionErr').textContent = `BLAD uruchomienia badania: ${error.message}`;
+    $('metaResearchStartBtn').disabled = currentQueryPlan?.status !== 'APPROVED' || currentQueryPlanDirty;
+  }
+}
+
+async function checkN8nStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    const el = $('n8nStatus');
+    el.className = `status ${data.reachable ? 'good' : 'bad'}`;
+    el.innerHTML = `<span class="dot"></span>${data.reachable ? 'n8n dostepny' : 'n8n niedostepny'} · ${escapeHtml(data.baseUrl)}`;
+  } catch {
+    const el = $('n8nStatus');
+    el.className = 'status bad';
+    el.innerHTML = '<span class="dot"></span>blad statusu';
+  }
+}
+
+async function refreshDbSize() {
+  try {
+    const res = await fetch('/api/db-size');
+    const data = await res.json();
+    const el = $('dbSizeStatus');
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    el.className = 'status db-size-chip';
+    el.innerHTML = `<span class="dot"></span>SQL: ${escapeHtml(formatBytes(data.bytes))}`;
+  } catch {
+    const el = $('dbSizeStatus');
+    el.className = 'status bad';
+    el.innerHTML = '<span class="dot"></span>SQL: blad';
+  }
+}
+
+for (const tabButton of document.querySelectorAll('.tab-btn')) {
+  tabButton.addEventListener('click', () => setActiveTab(tabButton.dataset.tab));
+}
+
+$('seedTableBody').addEventListener('change', event => {
+  const target = event.target;
+  const seedId = target.dataset.seedId;
+  if (!seedId) return;
+
+  if (target.classList.contains('seed-enabled')) {
+    updateSeed(seedId, { enabled: target.checked });
+  } else if (target.classList.contains('seed-priority')) {
+    updateSeed(seedId, { priority: target.value });
+  }
+});
+
+$('seedTableBody').addEventListener('input', event => {
+  const target = event.target;
+  const seedId = target.dataset.seedId;
+  if (!seedId) return;
+
+  const seed = findSeed(seedId);
+  if (!seed) return;
+
+  if (target.classList.contains('seed-query')) {
+    seed.query = target.value;
+  } else if (target.classList.contains('seed-rationale')) {
+    seed.rationale = target.value;
+  } else {
+    return;
+  }
+
+  markPlanDirty('MANUAL_REVISION');
+  $('currentPlanOutput').textContent = JSON.stringify(currentPlan, null, 2);
+  const check = basicContractCheck(currentPlan);
+  setContract(check);
+  $('reviseBtn').disabled = !check.ok;
+});
+
+$('seedTableBody').addEventListener('click', event => {
+  if (!event.target.classList.contains('seed-delete')) return;
+  deleteSeed(event.target.dataset.seedId);
+});
+
+$('addSeedBtn').addEventListener('click', createUserSeed);
+
+$('enableAllSeedsBtn').addEventListener('click', () => {
+  if (!currentPlan?.seedQueries) return;
+  currentPlan.seedQueries.forEach(seed => { seed.enabled = true; });
+  markPlanDirty('MANUAL_REVISION');
+  syncPlanViews();
+});
+
+$('disableAllSeedsBtn').addEventListener('click', () => {
+  if (!currentPlan?.seedQueries) return;
+  currentPlan.seedQueries.forEach(seed => { seed.enabled = false; });
+  markPlanDirty('MANUAL_REVISION');
+  syncPlanViews();
+});
+
+$('copyEnabledSeedsBtn').addEventListener('click', async () => {
+  if (!currentPlan?.seedQueries) return;
+  const enabled = currentPlan.seedQueries.filter(seed => seed.enabled);
+  await navigator.clipboard.writeText(JSON.stringify(enabled, null, 2));
+  const old = $('copyEnabledSeedsBtn').textContent;
+  $('copyEnabledSeedsBtn').textContent = `Skopiowano ${enabled.length}`;
+  setTimeout(() => { $('copyEnabledSeedsBtn').textContent = old; }, 1000);
+});
+
+$('generateBtn').addEventListener('click', async () => {
+  $('saveResult').textContent = '';
+  $('saveError').textContent = '';
+
+  const requestId = uuid();
+  $('requestIdText').textContent = requestId;
+
+  const payload = {
+    requestId,
+    projectId,
+    brief: collectBriefFromForm(),
+    availableDiscoveryCapabilities: capabilities(),
+  };
+
+  try {
+    const { plan } = await callWorkflow('/api/mr01', payload);
+    if (plan) {
+      conversation = [];
+      revisionNumber = 0;
+      setCurrentPlan(plan, {
+        sourceLabel: 'MR-01 generation',
+        origin: 'LLM_GENERATION',
+        persistedVersionId: null,
+        persistedVersionNumber: null,
+        dirty: true,
+        addHistory: true,
+      });
+    }
+  } catch (error) {
+    $('output').textContent = error.stack || error.message;
+    setContract({ ok: false, reason: error.message });
+  }
+});
+
+$('reviseBtn').addEventListener('click', async () => {
+  $('saveResult').textContent = '';
+  $('saveError').textContent = '';
+
+  if (!currentPlan) return;
+
+  const instruction = $('instruction').value.trim();
+  if (!instruction) return;
+
+  const requestId = uuid();
+  $('requestIdText').textContent = requestId;
+
+  const payload = {
+    requestId,
+    projectId,
+    currentPlan,
+    userInstruction: instruction,
+    recentConversation: conversation.slice(-8),
+    availableDiscoveryCapabilities: capabilities(),
+  };
+
+  try {
+    const { plan } = await callWorkflow('/api/mr02', payload);
+
+    if (plan) {
+      conversation.push({ role: 'user', content: instruction });
+      conversation.push({ role: 'assistant', content: plan.changeSummary || 'Plan revised.' });
+
+      setCurrentPlan(plan, {
+        sourceLabel: 'MR-02 revision',
+        origin: 'LLM_REVISION',
+        dirty: true,
+        addHistory: true,
+      });
+    }
+  } catch (error) {
+    $('output').textContent = error.stack || error.message;
+    setContract({ ok: false, reason: error.message });
+  }
+});
+
+$('newProjectBtn').addEventListener('click', () => {
+  projectId = uuid();
+  localStorage.setItem('marketRadarProjectId', projectId);
+  $('projectIdText').textContent = projectId;
+
+  currentPlan = null;
+  currentPlanOrigin = null;
+  currentPersistedVersionId = null;
+  currentPersistedVersionNumber = null;
+  currentPlanDirty = false;
+
+  conversation = [];
+  revisionNumber = 0;
+
+  syncPlanViews();
+
+  $('planStateText').textContent = 'Najpierw wygeneruj poprawny plan MR-01.';
+  $('history').className = 'muted';
+  $('history').textContent = 'Brak.';
+  $('versionPreview').textContent = 'Kliknij POKAZ przy wybranej wersji.';
+});
+
+$('clearPlanBtn').addEventListener('click', () => {
+  currentPlan = null;
+  currentPlanOrigin = null;
+  currentPlanDirty = false;
+  conversation = [];
+  revisionNumber = 0;
+  syncPlanViews();
+  $('planStateText').textContent = 'currentPlan wyczyszczony.';
+});
+
+$('loadPlanBtn').addEventListener('click', () => {
+  try {
+    const value = JSON.parse($('manualPlan').value);
+    const check = basicContractCheck(value);
+    setContract(check);
+    if (!check.ok) throw new Error(check.reason);
+
+    setCurrentPlan(value, {
+      sourceLabel: 'manual JSON load',
+      origin: 'MANUAL_REVISION',
+      dirty: true,
+      addHistory: true,
+    });
+  } catch (error) {
+    setContract({ ok: false, reason: `Nie mozna wczytac planu: ${error.message}` });
+  }
+});
+
+$('copyBtn').addEventListener('click', async () => {
+  if (lastResponseData == null) return;
+  await navigator.clipboard.writeText(JSON.stringify(lastResponseData, null, 2));
+  const old = $('copyBtn').textContent;
+  $('copyBtn').textContent = 'Skopiowano';
+  setTimeout(() => { $('copyBtn').textContent = old; }, 900);
+});
+
+$('saveProjectBtn').addEventListener('click', saveCurrentProject);
+
+$('refreshProjectsBtn').addEventListener('click', refreshProjects);
+
+$('savedProjectsBody').addEventListener('click', event => {
+  const button = event.target.closest('.open-project-btn');
+  if (!button) return;
+  openProject(button.dataset.projectId);
+});
+
+$('selectedProjectVersions').addEventListener('click', event => {
+  const previewBtn = event.target.closest('.preview-version-btn');
+  if (previewBtn) {
+    previewVersion(previewBtn.dataset.versionId);
+    return;
+  }
+
+  const loadBtn = event.target.closest('.load-version-btn');
+  if (loadBtn) {
+    loadVersionIntoWorkbench(loadBtn.dataset.versionId);
+  }
+});
+
+$('queryPlanGenerateBtn').addEventListener('click', generateQueryPlan);
+$('queryPlanRefreshBtn').addEventListener('click', refreshQueryPlanContext);
+$('queryPlanSaveBtn').addEventListener('click', saveQueryPlanDraft);
+$('queryPlanApproveBtn').addEventListener('click', approveQueryPlan);
+$('metaResearchStartBtn').addEventListener('click', startMetaResearch);
+$('metaRunRelevanceBtn').addEventListener('click', runMetaRelevanceFilter);
+$('metaApplyFiltersBtn').addEventListener('click', loadMetaResearchAds);
+$('metaExportFullCsvBtn').addEventListener('click', exportMetaAdsFullCsv);
+$('metaExportShortCsvBtn').addEventListener('click', exportMetaAdsShortCsv);
+
+$('queryPlanSelectAllSeedsBtn').addEventListener('click', () => {
+  if (!queryPlanContext?.seeds?.length) return;
+  queryPlanSelectedSeedIds = new Set(queryPlanContext.seeds.map(seed => String(seed.seedId)));
+  renderQueryPlanSeedSourceList();
+});
+
+$('queryPlanClearSeedSelectionBtn').addEventListener('click', () => {
+  queryPlanSelectedSeedIds = new Set();
+  renderQueryPlanSeedSourceList();
+});
+
+$('queryPlanSeedSourceList').addEventListener('change', event => {
+  const target = event.target;
+  if (!target.classList.contains('query-plan-seed-checkbox')) return;
+  const seedId = String(target.dataset.seedId || '');
+  if (!seedId) return;
+
+  if (target.checked) {
+    queryPlanSelectedSeedIds.add(seedId);
+  } else {
+    queryPlanSelectedSeedIds.delete(seedId);
+  }
+  renderQueryPlanSeedSourceList();
+});
+
+$('queryPlanSeedSourceList').addEventListener('click', event => {
+  const removeBtn = event.target.closest('.seed-remove-btn');
+  if (!removeBtn) return;
+  const seedId = String(removeBtn.dataset.removeSeedId || '');
+  if (!seedId) return;
+
+  queryPlanContext.seeds = (queryPlanContext.seeds || []).filter(seed => String(seed.seedId) !== seedId);
+  queryPlanSelectedSeedIds.delete(seedId);
+  renderQueryPlanSeedSourceList();
+});
+
+$('metaFilterHelpBtn').addEventListener('click', event => {
+  event.stopPropagation();
+  $('metaFilterHelpBubble').classList.toggle('hidden');
+});
+
+$('metaLifecycleHelpBtn').addEventListener('click', event => {
+  event.stopPropagation();
+  $('metaLifecycleHelpBubble').classList.toggle('hidden');
+});
+
+document.addEventListener('click', event => {
+  const wrap = event.target.closest('.filter-help-wrap');
+  const lifecycleWrap = event.target.closest('#metaLifecycleFilterWrap');
+  if (!wrap) {
+    $('metaFilterHelpBubble').classList.add('hidden');
+  }
+  if (!lifecycleWrap) {
+    $('metaLifecycleHelpBubble').classList.add('hidden');
+  }
+});
+
+[
+  'metaFilterRelevance',
+  'metaFilterQuery',
+  'metaFilterSeed',
+  'metaFilterPage',
+  'metaFilterVisible',
+  'metaFilterActive',
+  'metaFilterMinReach',
+  'metaFilterStartDate',
+  'metaSortBy',
+  'metaFamilyClassFilter',
+  'metaFamilyStatusFilter',
+  'metaFamilyPatternFilter',
+].forEach(id => {
+  $(id).addEventListener('change', loadMetaResearchAds);
+});
+
+$('metaLifecycleAllBtn').addEventListener('click', () => {
+  setLifecycleFiltersSelected(true);
+  loadMetaResearchAds();
+});
+
+$('metaLifecycleNoneBtn').addEventListener('click', () => {
+  setLifecycleFiltersSelected(false);
+  loadMetaResearchAds();
+});
+
+$('metaLifecycleCheckboxes').addEventListener('change', () => {
+  loadMetaResearchAds();
+});
+
+$('metaAdsBody').addEventListener('change', async event => {
+  const select = event.target.closest('.ad-relevance-select');
+  if (!select) return;
+
+  const adArchiveId = String(select.dataset.adArchiveId || '').trim();
+  if (!adArchiveId) return;
+
+  const nextStatus = String(select.value || '').trim().toUpperCase();
+
+  try {
+    await setManualAdRelevance(adArchiveId, nextStatus);
+    $('metaRelevanceRunStatus').textContent = `Zapisano manual override: ${adArchiveId} -> ${nextStatus}`;
+    await loadMetaResearchAds();
+  } catch (error) {
+    $('metaRelevanceRunStatus').textContent = `BLAD manual override: ${error.message}`;
+  }
+});
+
+$('metaAdsBody').addEventListener('click', async event => {
+  const detailsButton = event.target.closest('.ad-details-btn');
+  if (detailsButton) {
+    const adArchiveId = String(detailsButton.dataset.adArchiveId || '').trim();
+    if (adArchiveId) {
+      openAdDetailsModal(adArchiveId);
+    }
+    return;
+  }
+
+  const restoreButton = event.target.closest('.ad-relevance-restore');
+  if (!restoreButton) return;
+
+  const adArchiveId = String(restoreButton.dataset.adArchiveId || '').trim();
+  if (!adArchiveId) return;
+
+  try {
+    await restoreAdRelevanceFromMr04(adArchiveId);
+    $('metaRelevanceRunStatus').textContent = `Przywrocono decyzje MR04 dla reklamy ${adArchiveId}.`;
+    await loadMetaResearchAds();
+  } catch (error) {
+    $('metaRelevanceRunStatus').textContent = `BLAD przywracania MR04: ${error.message}`;
+  }
+});
+
+$('adDetailsCloseBtn').addEventListener('click', closeAdDetailsModal);
+$('adDetailsModalBackdrop').addEventListener('click', event => {
+  if (event.target === $('adDetailsModalBackdrop')) {
+    closeAdDetailsModal();
+  }
+});
+
+$('queryPlanEditor').addEventListener('input', event => {
+  const target = event.target;
+  const seedIndex = Number(target.dataset.seedIndex);
+  const queryIndex = Number(target.dataset.queryIndex);
+
+  if (!Number.isFinite(seedIndex) || !Number.isFinite(queryIndex)) return;
+
+  const query = getEditableQuery(seedIndex, queryIndex);
+  if (!query) return;
+
+  if (target.classList.contains('query-text')) {
+    query.text = target.value;
+    query.termCount = countQueryTerms(target.value);
+  } else if (target.classList.contains('query-rationale')) {
+    query.rationale = target.value;
+  } else if (target.classList.contains('query-priority')) {
+    query.priority = Number(target.value);
+  } else {
+    return;
+  }
+
+  markQueryPlanDirty();
+});
+
+$('queryPlanEditor').addEventListener('change', event => {
+  const target = event.target;
+  const seedIndex = Number(target.dataset.seedIndex);
+  const queryIndex = Number(target.dataset.queryIndex);
+
+  if (!Number.isFinite(seedIndex) || !Number.isFinite(queryIndex)) return;
+
+  const query = getEditableQuery(seedIndex, queryIndex);
+  if (!query) return;
+
+  if (target.classList.contains('query-enabled')) {
+    query.enabled = target.checked;
+  } else if (target.classList.contains('query-type')) {
+    query.queryType = target.value;
+  } else {
+    return;
+  }
+
+  markQueryPlanDirty();
+});
+
+$('queryPlanEditor').addEventListener('click', event => {
+  const deleteBtn = event.target.closest('.query-delete');
+  if (deleteBtn) {
+    const seedIndex = Number(deleteBtn.dataset.seedIndex);
+    const queryIndex = Number(deleteBtn.dataset.queryIndex);
+    const seedPlan = currentQueryPlan?.seedPlans?.[seedIndex];
+    if (!seedPlan) return;
+    seedPlan.queries.splice(queryIndex, 1);
+    markQueryPlanDirty();
+    return;
+  }
+
+  const addBtn = event.target.closest('.add-query-btn');
+  if (addBtn) {
+    const seedIndex = Number(addBtn.dataset.seedIndex);
+    const seedPlan = currentQueryPlan?.seedPlans?.[seedIndex];
+    if (!seedPlan) return;
+
+    seedPlan.queries.push({
+      id: `ui-${uuid()}`,
+      text: '',
+      termCount: 0,
+      queryType: 'CORE',
+      priority: 50,
+      rationale: '',
+      enabled: true,
+      sortOrder: seedPlan.queries.length,
+    });
+
+    markQueryPlanDirty();
+  }
+});
+
+checkN8nStatus();
+setInterval(checkN8nStatus, 10000);
+refreshDbSize();
+setInterval(refreshDbSize, 15000);
+
+syncPlanViews();
+renderQueryPlanProjectMeta();
+renderQueryPlanSummary();
+refreshLatestMetaResearchForProject();
+</script>
+</body>
+</html>

@@ -1,0 +1,183 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DiscoveryPlanV1",
+  "description": "A single version of a market-discovery plan. Describes HOW the system will search for advertising traction signals for a given creator capability — never a confirmed product, sale, or ROAS claim. This schema is intentionally flattened (no $ref/$defs) because n8n's Structured Output Parser node does not support $ref resolution. Keep it flat if you edit it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "capabilityUnderstanding",
+    "marketBreadth",
+    "seedQueries",
+    "candidateProductTypes",
+    "initialTaxonomy",
+    "discoveryStrategies",
+    "queryExpansionPolicy",
+    "openUnknowns",
+    "constraints",
+    "discoveryLimits",
+    "saturationCriteria",
+    "changeSummary",
+    "warnings"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.1",
+      "description": "Contract version. Bump only with a matching change here and in n8n prompts/workflows."
+    },
+    "capabilityUnderstanding": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The model's restated understanding of what the creator can produce, in its own words. Never a product recommendation — a reflection check so the user can confirm the model understood the brief."
+    },
+    "marketBreadth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["country", "language", "notes"],
+      "properties": {
+        "country": { "type": "string", "minLength": 1, "description": "ISO-ish country label, e.g. 'PL'." },
+        "language": { "type": "string", "minLength": 1, "description": "Primary language for ad search, e.g. 'pl'." },
+        "notes": { "type": "string", "description": "Free-text caveats about market scope, e.g. diaspora audiences, bilingual segments. Empty string if none." }
+      }
+    },
+    "seedQueries": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Initial search probes to run against ad libraries/search engines. These are FIRST PROBES to explore, not confirmed product hypotheses.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "query", "rationale", "priority", "enabled", "source"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "description": "Stable identifier, e.g. 'sq-1'. Must be unique within this plan." },
+          "query": { "type": "string", "minLength": 1, "description": "The literal search string/phrase to try." },
+          "rationale": { "type": "string", "minLength": 1, "description": "Why this probe was chosen, tied back to the stated capability." },
+          "priority": { "type": "string", "enum": ["high", "medium", "low"], "description": "Suggested exploration order." },
+          "enabled": { "type": "boolean", "description": "Whether this query is currently active. Lets a user switch a query off without deleting it." },
+          "source": { "type": "string", "enum": ["LLM_INITIAL", "LLM_REVISION", "USER", "DISCOVERY_EXPANSION"], "description": "Where this query came from. DISCOVERY_EXPANSION is reserved for a future iterative-discovery loop and is not produced by MR-01/MR-02 yet." }
+        }
+      }
+    },
+    "candidateProductTypes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Plausible product/offer formats worth watching for, drawn from the creator's declared available formats. Not a recommendation to build any of them.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "description"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1, "description": "Short name, e.g. 'Self-paced online course'." },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "initialTaxonomy": {
+      "type": "array",
+      "minItems": 1,
+      "description": "A starter set of topic/segment categories to organize discovered signals under. Expected to evolve across plan revisions.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "description"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "discoveryStrategies": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Executable search strategies, each tied to a discovery capability the current collector runtime actually supports (see availableDiscoveryCapabilities in the MR-01 request). Describes HOW to search, not WHO was found — no results are collected yet at plan time. Do not propose a source/mode combination the runtime cannot execute.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "mode", "label", "description"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "enum": ["META_AD_LIBRARY"], "description": "Which discovery source this strategy runs against. Only sources the current collector implements are valid; extending this list requires a schemaVersion bump." },
+          "mode": { "type": "string", "enum": ["KEYWORD_SEARCH"], "description": "Which mode of that source this strategy uses. Only modes the current collector implements are valid; extending this list requires a schemaVersion bump." },
+          "label": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "queryExpansionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["whenToBroaden", "whenToNarrow", "maxExpansionRounds"],
+      "description": "Rules for how future discovery rounds should widen or narrow the taxonomy/seed queries as results come in.",
+      "properties": {
+        "whenToBroaden": { "type": "string", "minLength": 1, "description": "Condition under which the next round should widen scope." },
+        "whenToNarrow": { "type": "string", "minLength": 1, "description": "Condition under which the next round should narrow scope." },
+        "maxExpansionRounds": { "type": "integer", "minimum": 0, "description": "Suggested cap on automatic expansion rounds before requiring human review." }
+      }
+    },
+    "openUnknowns": {
+      "type": "array",
+      "description": "Explicit list of things the plan does NOT know yet and should not guess at (e.g. exact audience age range, willingness to pay). Keeps the model honest about gaps.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "question"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "question": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "description": "Hard constraints carried over from the project brief that discovery must respect (e.g. exclusions, compliance limits).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "discoveryLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxQueriesPerRun", "maxAdsPerQuery", "maxScrollsPerQuery", "stopAfterScrollsWithoutNewAds", "maxRuntimeMinutes"],
+      "description": "Operational guardrails passed to the Playwright collector so a run cannot runaway. Modeled on what the collector actually iterates over (query -> ads via scrolling a results list), not on advertiser counts.",
+      "properties": {
+        "maxQueriesPerRun": { "type": "integer", "minimum": 1, "description": "Maximum number of enabled seedQueries the scheduler will run in a single DiscoveryRun." },
+        "maxAdsPerQuery": { "type": "integer", "minimum": 1, "description": "Maximum number of ads collected for any single query before moving on." },
+        "maxScrollsPerQuery": { "type": "integer", "minimum": 1, "description": "Hard cap on result-list scroll/pagination steps per query, independent of ad counting." },
+        "stopAfterScrollsWithoutNewAds": { "type": "integer", "minimum": 1, "description": "Stop scrolling a query early after this many consecutive scrolls that yielded no new ads." },
+        "maxRuntimeMinutes": { "type": "integer", "minimum": 1, "description": "Wall-clock cap for the whole DiscoveryRun." }
+      }
+    },
+    "saturationCriteria": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Conditions under which a discovery round should be considered 'done for now' (diminishing returns), so the collector/human knows when to stop rather than searching indefinitely.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "changeSummary": {
+      "type": "string",
+      "description": "A short human-readable summary of what changed from the previous plan version and why. Required (schema-enforced) on every version: MR-01 (initial LLM generation) sets it to \"\"; MR-02 (LLM revision) sets a non-empty summary; a manual revision gets its changeSummary generated mechanically by the app from a structural diff against the parent version (never an LLM call), optionally with the user's own short note appended."
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Non-fatal notices about the revision or generation, e.g. 'user instruction conflicted with declared constraint X and was only partially applied'. Required (schema-enforced); empty array if none.",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

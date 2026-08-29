@@ -1,0 +1,188 @@
+{
+  "name": "MR03 - Meta Ads Query Planner",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mr03-query-planner",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7adbb46d-5637-43ee-bed9-f7d7e757f2a2",
+      "name": "MR03 Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\n\nconst projectId =\n  body.projectId ??\n  body.project_id ??\n  body.id ??\n  'default';\n\nconst country =\n  String(body.country ?? body.market ?? 'PL').trim().toUpperCase() || 'PL';\n\nconst maxQueriesPerSeedRaw =\n  body.maxQueriesPerSeed ??\n  body.settings?.maxQueriesPerSeed ??\n  6;\n\nconst maxQueriesPerSeed = Math.max(\n  3,\n  Math.min(8, Number(maxQueriesPerSeedRaw) || 6)\n);\n\nlet sourceSeeds =\n  body.seeds ??\n  body.discoverySeeds ??\n  body.searchPlan?.seeds ??\n  body.plan?.seeds ??\n  body.searchTerms ??\n  body.terms ??\n  [];\n\nif (!Array.isArray(sourceSeeds)) {\n  sourceSeeds = [sourceSeeds];\n}\n\nfunction extractText(seed) {\n  if (typeof seed === 'string') return seed;\n  if (!seed || typeof seed !== 'object') return '';\n  return (\n    seed.text ??\n    seed.seed ??\n    seed.value ??\n    seed.query ??\n    seed.name ??\n    seed.label ??\n    ''\n  );\n}\n\nfunction extractId(seed, index) {\n  if (seed && typeof seed === 'object') {\n    return String(\n      seed.seedId ??\n      seed.seed_id ??\n      seed.id ??\n      `seed-${index + 1}`\n    );\n  }\n  return `seed-${index + 1}`;\n}\n\nconst seeds = sourceSeeds\n  .map((seed, index) => ({\n    seedId: extractId(seed, index),\n    text: String(extractText(seed)).replace(/\\s+/g, ' ').trim(),\n    source: seed && typeof seed === 'object'\n      ? (seed.source ?? seed.origin ?? null)\n      : null\n  }))\n  .filter(seed => seed.text.length > 0);\n\nif (!seeds.length) {\n  throw new Error(\n    'MR03 requires at least one seed. Send body.seeds as an array of strings or objects with text/seed/value/query/name.'\n  );\n}\n\nreturn [{\n  json: {\n    projectId,\n    country,\n    maxQueriesPerSeed,\n    plannerVersion: 'mr03-query-planner-v1',\n    seeds\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "a3815846-c162-4069-a355-e1c8618c8a0e",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Jesteś modułem MR03 QUERY PLANNER w systemie Demand Radar.\n\nCEL\nDostajesz listę seedów opisujących hipotezy rynku. Seed NIE jest gotowym zapytaniem do Meta Ads Library.\nTwoim zadaniem jest zamienić każdy seed na małą, wysokiej jakości rodzinę krótkich zapytań do Meta Ads Library.\n\nKONTEKST WYSZUKIWANIA\nW praktycznych testach długie frazy 4+ słów często dają zero lub bardzo mało wyników.\nNajbardziej użyteczne są zapytania 2-wyrazowe.\nZapytania 3-wyrazowe stosuj tylko wtedy, gdy wyraźnie zwiększają precyzję.\nNie wykonujesz żadnych wyszukiwań i nie oceniasz reklam. Tworzysz wyłącznie Query Plan.\n\nZASADY DLA KAŻDEGO SEEDA\n1. Utwórz maksymalnie {{ $json.maxQueriesPerSeed }} zapytań.\n2. Preferuj zapytania składające się z dokładnie 2 znaczących słów.\n3. Dopuszczaj 3 słowa tylko dla precyzyjnego wariantu, jeśli ma to sens.\n4. Nigdy nie generuj zapytań 1-wyrazowych ani 4+-wyrazowych.\n5. Nie rób wszystkich kombinacji mechanicznie.\n6. Każde zapytanie musi być naturalne, semantycznie związane z seedem i mieć realną wartość odkrywczą.\n7. Usuwaj słowa funkcyjne, jeśli nie niosą wartości wyszukiwawczej: \"dla\", \"u\", \"i\", \"w\", \"z\", \"na\", \"do\" itp.\n8. Nie zakładaj, że nazwa formatu (\"szkolenie\", \"kurs\", \"webinar\") zawsze powinna wejść do zapytania. Użyj jej tylko w jednym wariancie, jeśli może odkrywać inną część rynku.\n9. Generuj różne osie odkrywania:\n   - CORE: główny problem/temat,\n   - PROBLEM: język problemu/potrzeby,\n   - AUDIENCE: temat + odbiorca,\n   - FORMAT: temat + typ produktu, tylko gdy ma sens,\n   - SYNONYM: alternatywny język rynku,\n   - PRECISION: selektywny wariant 3-wyrazowy.\n10. Unikaj duplikatów i prawie-identycznych wariantów.\n11. Zachowuj język seeda. Dla polskich seedów generuj polskie zapytania.\n12. Nie wymyślaj nazw konkretnych produktów ani marek.\n13. Priority: 100 = najlepsze zapytanie startowe, 1 = najsłabsze. Posortuj malejąco.\n14. Minimum 3 zapytania 2-wyrazowe na seed, jeśli język na to pozwala.\n15. Maksymalnie 2 zapytania 3-wyrazowe na seed.\n\nDANE WEJŚCIOWE\nprojectId: {{ $json.projectId }}\ncountry: {{ $json.country }}\nplannerVersion: {{ $json.plannerVersion }}\n\nSEEDS:\n{{ JSON.stringify($json.seeds) }}\n\nZWRÓĆ WYŁĄCZNIE DANE ZGODNE ZE SCHEMATEM OUTPUT PARSERA.\nDla każdego seeda zachowaj jego seedId i pełny seedText.\nPole concept ma krótko nazywać rdzeń rynku.\nPole audience ma być tablicą grup odbiorców wynikających z seeda; jeśli brak, zwróć [].\nPole formatHints ma być tablicą formatów produktu wynikających z seeda; jeśli brak, zwróć [].\nKażde query musi zawierać text, termCount, queryType, priority i krótkie rationale.",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        528,
+        0
+      ],
+      "id": "fde93f46-cf34-4c01-8a91-551ef819cda5",
+      "name": "Build Query Plan"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        464,
+        240
+      ],
+      "id": "ee1fab6f-466a-421a-a6bb-b0465ac79195",
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"projectId\": \"project-1\",\n  \"country\": \"PL\",\n  \"plannerVersion\": \"mr03-query-planner-v1\",\n  \"seedPlans\": [\n    {\n      \"seedId\": \"seed-1\",\n      \"seedText\": \"szkolenie regulacja emocji u dzieci\",\n      \"concept\": \"regulacja emocji dzieci\",\n      \"audience\": [\"rodzice\", \"specjaliści pracujący z dziećmi\"],\n      \"formatHints\": [\"szkolenie\"],\n      \"queries\": [\n        {\n          \"text\": \"regulacja emocji\",\n          \"termCount\": 2,\n          \"queryType\": \"CORE\",\n          \"priority\": 100,\n          \"rationale\": \"Najszerszy rdzeń tematu bez nadmiernego zawężenia.\"\n        },\n        {\n          \"text\": \"emocje dzieci\",\n          \"termCount\": 2,\n          \"queryType\": \"AUDIENCE\",\n          \"priority\": 90,\n          \"rationale\": \"Łączy temat emocji z odbiorcą końcowym.\"\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        672,
+        240
+      ],
+      "id": "e2410b33-21ef-4d5e-88cb-87dee7bdea4e",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json.output ?? $json;\n\nif (!payload || !Array.isArray(payload.seedPlans)) {\n  throw new Error('MR03 output is missing seedPlans[].');\n}\n\nconst allowedTypes = new Set([\n  'CORE',\n  'PROBLEM',\n  'AUDIENCE',\n  'FORMAT',\n  'SYNONYM',\n  'PRECISION'\n]);\n\nfunction cleanQuery(text) {\n  return String(text ?? '')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .toLowerCase();\n}\n\nfunction countTerms(text) {\n  return cleanQuery(text).split(' ').filter(Boolean).length;\n}\n\nconst source = $('Normalize Input').first().json;\nconst maxQueries = source.maxQueriesPerSeed ?? 6;\n\nconst seedPlans = payload.seedPlans.map((seedPlan, seedIndex) => {\n  const seen = new Set();\n\n  let queries = Array.isArray(seedPlan.queries) ? seedPlan.queries : [];\n\n  queries = queries\n    .map(q => {\n      const text = cleanQuery(q.text);\n      const termCount = countTerms(text);\n      const queryTypeRaw = String(q.queryType ?? 'CORE').toUpperCase();\n      const queryType = allowedTypes.has(queryTypeRaw) ? queryTypeRaw : 'CORE';\n      const priority = Math.max(1, Math.min(100, Number(q.priority) || 50));\n\n      return {\n        text,\n        termCount,\n        queryType,\n        priority,\n        rationale: String(q.rationale ?? '').trim()\n      };\n    })\n    .filter(q => {\n      if (q.termCount < 2 || q.termCount > 3) return false;\n      if (!q.text || seen.has(q.text)) return false;\n      seen.add(q.text);\n      return true;\n    })\n    .sort((a, b) => b.priority - a.priority)\n    .slice(0, maxQueries);\n\n  const threeWord = queries.filter(q => q.termCount === 3);\n  if (threeWord.length > 2) {\n    const keepThree = new Set(threeWord.slice(0, 2).map(q => q.text));\n    queries = queries.filter(q => q.termCount === 2 || keepThree.has(q.text));\n  }\n\n  return {\n    seedId: String(seedPlan.seedId ?? source.seeds?.[seedIndex]?.seedId ?? `seed-${seedIndex + 1}`),\n    seedText: String(seedPlan.seedText ?? source.seeds?.[seedIndex]?.text ?? '').trim(),\n    concept: String(seedPlan.concept ?? '').trim(),\n    audience: Array.isArray(seedPlan.audience) ? seedPlan.audience.map(String) : [],\n    formatHints: Array.isArray(seedPlan.formatHints) ? seedPlan.formatHints.map(String) : [],\n    queries\n  };\n});\n\nreturn [{\n  json: {\n    ok: true,\n    projectId: String(payload.projectId ?? source.projectId),\n    country: String(payload.country ?? source.country ?? 'PL').toUpperCase(),\n    plannerVersion: String(payload.plannerVersion ?? source.plannerVersion ?? 'mr03-query-planner-v1'),\n    status: 'DRAFT',\n    generatedAt: new Date().toISOString(),\n    seedPlans\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "id": "b6125f29-be06-4d3b-be67-0104d2e34bd4",
+      "name": "Validate & Finalize"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1072,
+        0
+      ],
+      "id": "db83169a-6128-4c7b-9b83-97d60f4ef59c",
+      "name": "Return Query Plan"
+    }
+  ],
+  "connections": {
+    "MR03 Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Build Query Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Build Query Plan",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Build Query Plan",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Query Plan": {
+      "main": [
+        [
+          {
+            "node": "Validate & Finalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Finalize": {
+      "main": [
+        [
+          {
+            "node": "Return Query Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "nodeGroups": []
+}

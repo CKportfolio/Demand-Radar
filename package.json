@@ -1,0 +1,17 @@
+{
+  "name": "demand-radar-meta-ads-research",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test:mr04-smoke": "node scripts/test-mr04-smoke.js",
+    "test:offer-family-smoke": "node scripts/test-offer-family-smoke.js",
+    "rebuild:offer-families": "node scripts/rebuild-offer-families.js"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  },
+  "description": "Research popytu na produkty cyfrowe na podstawie sygnałów z Meta Ads Library."
+}
