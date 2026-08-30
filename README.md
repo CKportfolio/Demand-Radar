@@ -1,5 +1,7 @@
 # Demand Radar
 
+[![CI](https://github.com/CKportfolio/Demand-Radar/actions/workflows/ci.yml/badge.svg)](https://github.com/CKportfolio/Demand-Radar/actions/workflows/ci.yml)
+
 Lokalne narzędzie do badania **sygnałów popytu na produkty cyfrowe** poprzez analizę reklam z Meta Ads Library.
 
 Projekt powstał po poznaniu ręcznej metody researchu stosowanej przez twórców szkoleń i produktów internetowych: zamiast zaczynać od własnego pomysłu na produkt, najpierw sprawdzać, **co konkurenci konsekwentnie reklamują i do jakich ofert prowadzą ich kampanie**.
@@ -232,6 +234,25 @@ System ma pomagać odpowiedzieć na pytanie:
 a nie:
 
 > „Który produkt na pewno się sprzedaje?”.
+
+## Quality checks
+
+Repozytorium ma automatyczny pipeline GitHub Actions. Przy zmianach w `main` oraz Pull Requestach CI wykonuje:
+
+- deterministyczną instalację przez `npm ci`,
+- kontrolę składni kluczowych modułów,
+- testy jednostkowe klasyfikacji lifecycle i offer families,
+- test migracji SQLite na świeżej bazie in-memory,
+- istniejące smoke testy MR04 i offer-family,
+- walidację przykładowego Discovery Plan względem JSON Schema,
+- `npm audit` dla podatności high/critical.
+
+Lokalnie ten sam zestaw można uruchomić przez:
+
+```bash
+npm ci
+npm run ci
+```
 
 ## Status
 

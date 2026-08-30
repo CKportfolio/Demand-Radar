@@ -3,8 +3,13 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
+    "test": "node --test tests/*.test.js",
     "test:mr04-smoke": "node scripts/test-mr04-smoke.js",
     "test:offer-family-smoke": "node scripts/test-offer-family-smoke.js",
+    "test:smoke": "npm run test:mr04-smoke && npm run test:offer-family-smoke",
+    "validate:schema": "node scripts/validate-discovery-plan.mjs tests/fixtures/discovery-plan.valid.json",
+    "check:syntax": "node --check server.js && node --check src/meta/lifecycleClassifier.js && node --check src/meta/offerFamilyClassifier.js && node --check src/meta/mr04RelevanceFilter.js && node --check src/meta/metaAdsHarvester.js",
+    "ci": "npm run check:syntax && npm test && npm run test:smoke && npm run validate:schema",
     "rebuild:offer-families": "node scripts/rebuild-offer-families.js"
   },
   "devDependencies": {
@@ -13,5 +18,8 @@
   "dependencies": {
     "better-sqlite3": "^13.0.3"
   },
-  "description": "Research popytu na produkty cyfrowe na podstawie sygnałów z Meta Ads Library."
+  "description": "Research popytu na produkty cyfrowe na podstawie sygnałów z Meta Ads Library.",
+  "engines": {
+    "node": ">=22 <25"
+  }
 }
