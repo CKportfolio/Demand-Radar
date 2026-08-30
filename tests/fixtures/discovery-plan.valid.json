@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "1.1",
+  "capabilityUnderstanding": "Twórca potrafi prowadzić szkolenia online i pracować z zespołami.",
+  "marketBreadth": {
+    "country": "PL",
+    "language": "pl",
+    "notes": "Przykładowy fixture testowy."
+  },
+  "seedQueries": [
+    {
+      "id": "seed-1",
+      "query": "komunikacja w zespole szkolenie",
+      "rationale": "Bezpośrednio łączy kompetencję z formatem produktu.",
+      "priority": "high",
+      "enabled": true,
+      "source": "LLM_INITIAL"
+    }
+  ],
+  "candidateProductTypes": [
+    {
+      "id": "type-1",
+      "label": "Szkolenie online",
+      "description": "Format zgodny z deklarowanymi możliwościami twórcy."
+    }
+  ],
+  "initialTaxonomy": [
+    {
+      "id": "tax-1",
+      "label": "Komunikacja w pracy",
+      "description": "Obszar startowy do organizowania znalezionych sygnałów."
+    }
+  ],
+  "discoveryStrategies": [
+    {
+      "id": "strategy-1",
+      "source": "META_AD_LIBRARY",
+      "mode": "KEYWORD_SEARCH",
+      "label": "Keyword search",
+      "description": "Wyszukiwanie reklam po zatwierdzonych frazach."
+    }
+  ],
+  "queryExpansionPolicy": {
+    "whenToBroaden": "Gdy wyniki są zbyt nieliczne lub zbyt jednorodne.",
+    "whenToNarrow": "Gdy wyniki są liczne, ale słabo związane z badanym obszarem.",
+    "maxExpansionRounds": 2
+  },
+  "openUnknowns": [
+    {
+      "id": "unknown-1",
+      "question": "Które segmenty odbiorców wykazują najsilniejsze sygnały trakcji?"
+    }
+  ],
+  "constraints": [],
+  "discoveryLimits": {
+    "maxQueriesPerRun": 10,
+    "maxAdsPerQuery": 20,
+    "maxScrollsPerQuery": 5,
+    "stopAfterScrollsWithoutNewAds": 2,
+    "maxRuntimeMinutes": 30
+  },
+  "saturationCriteria": [
+    {
+      "id": "sat-1",
+      "description": "Zakończ rundę, gdy kolejne zapytania nie przynoszą nowych istotnych ofert."
+    }
+  ],
+  "changeSummary": "",
+  "warnings": []
+}
