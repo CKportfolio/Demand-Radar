@@ -5,6 +5,7 @@
 Lokalne narzędzie do badania **sygnałów popytu na produkty cyfrowe** poprzez analizę reklam z Meta Ads Library.
 
 Projekt powstał po poznaniu ręcznej metody researchu stosowanej przez twórców szkoleń i produktów internetowych: zamiast zaczynać od własnego pomysłu na produkt, najpierw sprawdzać, **co konkurenci konsekwentnie reklamują i do jakich ofert prowadzą ich kampanie**.
+Założenie rozumowania stojącego za tą metodą jest następujące - Reklamy
 
 Zautomatyzowałem ten proces.
 
@@ -256,8 +257,9 @@ npm run ci
 
 ## Status
 
-**Working prototype / portfolio project**
+**Work in progress / research prototype**
 
-Aktualna wersja działa lokalnie i wykorzystuje Apify jako provider danych z Meta Ads Library oraz n8n jako warstwę LLM.
+Demand Radar nie jest ukończonym produktem ani gotowym systemem produkcyjnym. Główna koncepcja i znacząca część workflow zostały zaimplementowane, ale projekt nadal wymaga dalszego dopracowania, testów i uporządkowania części procesu.
 
-Projekt jest narzędziem researchowym. Wyniki wymagają interpretacji człowieka i nie powinny być traktowane jako potwierdzenie sprzedaży, rentowności ani skuteczności reklam.
+Umieszczam go w portfolio mimo tego, ponieważ pokazuje interesujący problem: jak zamienić nieustrukturyzowany research rynku reklamowego w powtarzalny proces obejmujący discovery, pozyskanie danych, deduplikację, ocenę relewancji i grupowanie obserwowanych ofert.
+Jest to projekt nad ktory obecnie pracuje.
