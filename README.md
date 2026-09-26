@@ -1,263 +1,149 @@
-# Demand Radar
+Demand Radar
 
-[![CI](https://github.com/CKportfolio/Demand-Radar/actions/workflows/ci.yml/badge.svg)](https://github.com/CKportfolio/Demand-Radar/actions/workflows/ci.yml)
 
-Lokalne narzędzie do badania **sygnałów popytu na produkty cyfrowe** poprzez analizę reklam z Meta Ads Library.
 
-Projekt powstał po poznaniu ręcznej metody researchu stosowanej przez twórców szkoleń i produktów internetowych: zamiast zaczynać od własnego pomysłu na produkt, najpierw sprawdzać, **co konkurenci konsekwentnie reklamują i do jakich ofert prowadzą ich kampanie**.
+Local-first workbench do badania sygnałów popytu na produkty cyfrowe na podstawie publicznie dostępnych reklam Meta Ads. Łączy planowanie researchu przez model, pobieranie danych przez Apify, lokalną bazę SQLite oraz kontrolowaną klasyfikację reklam przez workflowy n8n.
 
-Zautomatyzowałem ten proces.
+Demand Radar nie szacuje sprzedaży, ROAS ani rentowności konkurencji. Wskazuje sygnały warte dalszego badania: ciągłość kampanii, długość emisji, powtarzalność kreacji i rodzin ofert.
 
-## Problem
+Dlaczego powstał
 
-Ręczny research wymagał:
+Ręczny research rynku oznacza dziesiątki zapytań, setki reklam i dużo powtarzalnej selekcji: które wyniki są przypadkowym dopasowaniem słowa, które prowadzą do tej samej oferty, a które pokazują realną kontynuację kampanii.
 
-- wymyślania wielu zapytań do Meta Ads Library,
-- przeglądania dużej liczby reklam,
-- odrzucania wyników przypadkowych i nieistotnych,
-- sprawdzania jak długo reklamy są emitowane,
-- rozpoznawania, kiedy wiele reklam prowadzi do tej samej oferty,
-- porównywania kolejnych testów i wariantów kreacji,
-- składania wszystkiego w arkusz do dalszej analizy.
+Pierwsza wersja systemu spinała ten pipeline. Obecna wersja zamienia go w narzędzie robocze: użytkownik widzi etap pracy, może kontrolować rozmiar paczki i koszt klasyfikacji, zatrzymać proces, wrócić do niego po błędzie oraz analizować wyniki bez czekania na pełne wczytanie wszystkich szczegółów.
 
-Demand Radar automatyzuje większość tej pracy i zostawia człowiekowi etap interpretacji.
+Co robi
 
-## Co analizuje
-
-System **nie zna rzeczywistej sprzedaży, budżetu reklamowego, ROAS ani rentowności konkurencji**.
-
-Zamiast tego szuka publicznie widocznych **traction signals**, m.in.:
-
-- długości emisji reklamy,
-- tego, czy reklama nadal jest aktywna,
-- powtarzających się reklam tej samej oferty,
-- kolejnych kreacji kierujących do tego samego produktu,
-- kontynuacji kampanii po krótkim teście,
-- powrotów tej samej oferty po przerwie.
-
-Założenie badawcze jest proste: jeżeli reklamodawca przez dłuższy czas utrzymuje ofertę lub uruchamia wiele kolejnych reklam prowadzących do tego samego produktu, jest to **silniejszy sygnał zainteresowania rynku** niż pojedynczy, krótki test.
-
-To nadal sygnał — nie dowód sprzedaży.
-
-## Jak działa
-
-```text
-możliwości / obszar twórcy
+brief / obszar kompetencji
         ↓
-MR-01: Discovery Plan (LLM)
+MR01 — plan odkrywania rynku
         ↓
-MR-02: rewizja planu
+MR02 — rozmowa i rewizja planu
         ↓
-MR03: Query Planner (LLM)
+MR03 — plan zapytań
         ↓
-zapytania Meta Ads Library
+Apify + Meta Ads Library
         ↓
-Apify / Facebook Ads Library Scraper
+SQLite: deduplikacja, lifecycle, rodziny ofert
         ↓
-deduplikacja + zapis do SQLite
+MR04 — filtrowanie danych: KEEP / REJECT / POTENCJALNE
         ↓
-MR04: filtr relewancji (LLM)
+MR05 — drugi przebieg tylko dla POTENCJALNYCH
         ↓
-lifecycle pojedynczych reklam
-        ↓
-grupowanie reklam w rodziny ofert
-        ↓
-Workbench / filtry / CSV
-```
+Workbench: filtry, Timeline, CSV i ręczna decyzja
 
-## Klasyfikacja reklam
+Najważniejsze możliwości
 
-Pojedyncza reklama otrzymuje klasę zależną od długości emisji:
+Modularny Workbench z osobnymi zakładkami: panel roboczy, zapisane projekty, plan zapytań i przegląd wyników.
 
-- **BALON_PROBNY** — do 7 dni,
-- **TEST_W_TOKU** — 8–30 dni,
-- **ROKUJACA** — 31–90 dni,
-- **MOCNA** — 91–180 dni,
-- **EVERGREEN** — powyżej 180 dni.
+Planowanie badania: MR01 generuje plan, MR02 pozwala go zrewidować, MR03 buduje plan zapytań i seedów.
 
-Progi są heurystyką researchową, nie oceną wyniku finansowego reklamy.
+Pobieranie oraz deduplikacja reklam Meta Ads przez Apify; dane pozostają w lokalnej bazie SQLite.
 
-## Rodziny ofert
+Klasy lifecycle pojedynczych reklam: BALON_PROBNY, TEST_W_TOKU, ROKUJACA, MOCNA, EVERGREEN.
 
-Sam czas życia pojedynczej reklamy może być mylący. Dlatego Demand Radar próbuje również rozpoznać **wiele reklam należących do tej samej oferty**.
+Grupowanie reklam w rodziny ofert oraz niezależny modal Timeline: bloki reklam są ułożone na osi czasu, mają kolory lifecycle, tooltip z metadanymi i link do reklamy.
 
-Przy grupowaniu bierze pod uwagę m.in.:
+Filtrowanie relewancji MR04 z decyzjami KEEP, REJECT, POTENCJALNE, ręcznym nadpisaniem decyzji oraz pełnym cofnięciem segregacji.
 
-- reklamodawcę / `page_id`,
-- docelowy URL po usunięciu parametrów trackingowych,
-- `collation_id`, jeśli występuje,
-- podobieństwo tytułu i treści,
-- relację czasową między kolejnymi reklamami.
+MR05 jako drugi, bardziej stanowczy przebieg wyłącznie dla reklam nierozstrzygniętych po MR04.
 
-Rodzina może zostać sklasyfikowana jako:
+Kontrola kosztu i obciążenia modelu: wybór paczki od 1 do 200 reklam (domyślnie 20), sekwencyjne wysyłanie, limit 14 wywołań/min oraz retry po błędach przejściowych.
 
-- `TEST_ONLY`,
-- `REPEATED_TEST`,
-- `PROMISING`,
-- `ESTABLISHED`,
-- `EVERGREEN`.
+Trwały postęp MR04/MR05 zapisany po każdej paczce w SQLite; przyciski STOP/WZNÓW pozwalają wrócić wyłącznie do pozostałych reklam.
 
-Pozwala to odróżnić pojedynczą próbę od oferty, która jest konsekwentnie rozwijana, odświeżana i ponownie reklamowana.
+Odświeżanie postępu i statystyk w tle — bez przeładowania strony ani zmiany aktywnej zakładki.
 
-## Workbench
+Stopniowe pobieranie szczegółów reklam podczas przeglądania wyników, eksport pełnego i skróconego CSV.
 
-Interfejs pozwala m.in.:
+Architektura
 
-- tworzyć i zapisywać projekty researchowe,
-- generować i poprawiać Discovery Plan,
-- edytować seedy oraz query plan,
-- zatwierdzić plan przed uruchomieniem badania,
-- uruchomić research Meta Ads,
-- obserwować postęp badania,
-- filtrować reklamy,
-- uruchomić AI-owy filtr relewancji,
-- ręcznie nadpisać decyzję filtra,
-- analizować klasy lifecycle,
-- przeglądać rodziny ofert,
-- pobrać pełny lub skrócony CSV.
+Warstwa
 
-## Dane i baza
+Odpowiedzialność
 
-Aplikacja korzysta z lokalnego SQLite.
+Node.js / server.js
 
-Baza **nie jest częścią repozytorium**. Przy pierwszym uruchomieniu:
+Lokalne API, orkiestracja pobierania i kolejki klasyfikacji
 
-```text
-.data/market-radar.sqlite
-```
+SQLite / better-sqlite3
 
-jest tworzona automatycznie, a migracje zakładają wymagane tabele i indeksy.
+Projekty, plany, reklamy, decyzje, postęp zadań i rodziny ofert
 
-W repo nie ma historycznych researchy ani danych z poprzednich uruchomień.
+n8n
 
-## Technologie
+Wymienne workflowy LLM dla MR01–MR05
 
-- Node.js
-- JavaScript
-- SQLite / `better-sqlite3`
-- n8n
-- LLM workflows
-- Ajv / JSON Schema
-- Apify
-- Meta Ads Library
-- HTML / CSS / JavaScript
-- Docker Compose
+Apify
 
-## Uruchomienie
+Pobieranie reklam z Meta Ads Library
 
-### 1. Zależności aplikacji
+Vanilla HTML/CSS/JS
 
-```bash
-npm install
-```
+Workbench, filtry, modal Timeline i aktualizacje UI
 
-### 2. Konfiguracja
+Frontend jest celowo rozdzielony na moduły w public/js/tabs/; index.html pozostaje lekkim szkieletem aplikacji, a nie jednym wielotysięcznym plikiem.
 
-Skopiuj:
+Struktura repozytorium
 
-```text
-.env.example → .env
-```
-
-Uzupełnij przede wszystkim:
-
-```env
-APIFY_API_TOKEN=...
-```
-
-### 3. Uruchom n8n
-
-Na Windows:
-
-```powershell
-.\scripts\n8n-up.ps1
-```
-
-Następnie otwórz:
-
-```text
-http://127.0.0.1:5678
-```
-
-i zaimportuj workflowy z:
-
-```text
-n8n/workflows/
-```
-
-Po imporcie przypnij własny credential modelu LLM i aktywuj workflowy.
-
-### 4. Uruchom aplikację
-
-```bash
-npm start
-```
-
-Workbench:
-
-```text
-http://127.0.0.1:7654
-```
-
-## Struktura
-
-```text
 .
-├── index.html                 # Workbench
-├── server.js                 # lokalne API / orkiestracja
+├── index.html                 # szkielet Workbencha
+├── public/
+│   ├── css/workbench.css      # style UI
+│   └── js/
+│       ├── tabs/              # moduły czterech zakładek
+│       └── timeline-modal.js  # niezależny widok rodzin ofert
+├── server.js                  # API i orkiestracja zadań
 ├── src/
-│   ├── db/                   # SQLite, migracje, repozytoria
-│   └── meta/                 # harvesting, relevance, lifecycle, offer families
+│   ├── db/                    # SQLite, migracje, repozytoria
+│   └── meta/                  # harvesting, relevance, lifecycle, offer families
 ├── n8n/
-│   ├── workflows/            # MR-01 ... MR04
+│   ├── workflows/             # eksporty MR01–MR05
 │   ├── prompts/
 │   └── schemas/
-├── docs/
-│   └── architecture/
-│       └── DiscoveryPlanV1.schema.json  # kontrakt walidowany przez aplikację
-├── scripts/
-├── screenshots/
-├── docker-compose.n8n.yml
-└── .env.example
-```
+├── tests/
+├── docs/architecture/
+└── scripts/
 
-## O projekcie
+Uruchomienie lokalne
 
-Najważniejszym elementem projektu nie jest samo pobranie reklam, ale zamiana nieustrukturyzowanego procesu researchowego w powtarzalny workflow:
+Wymagania: Node.js 22, Docker Desktop oraz konto/credential wybranego dostawcy modelu w n8n.
 
-**problem biznesowy → plan badania → zapytania → dane → filtr jakości → heurystyki → grupowanie ofert → materiał do decyzji**
-
-System ma pomagać odpowiedzieć na pytanie:
-
-> **„Które obszary i oferty wyglądają na warte dalszego zbadania?”**
-
-a nie:
-
-> „Który produkt na pewno się sprzedaje?”.
-
-## Quality checks
-
-Repozytorium ma automatyczny pipeline GitHub Actions. Przy zmianach w `main` oraz Pull Requestach CI wykonuje:
-
-- deterministyczną instalację przez `npm ci`,
-- kontrolę składni kluczowych modułów,
-- testy jednostkowe klasyfikacji lifecycle i offer families,
-- test migracji SQLite na świeżej bazie in-memory,
-- istniejące smoke testy MR04 i offer-family,
-- walidację przykładowego Discovery Plan względem JSON Schema,
-- `npm audit` dla podatności high/critical.
-
-Lokalnie ten sam zestaw można uruchomić przez:
-
-```bash
+Copy-Item .env.example .env
 npm ci
+.\scripts\n8n-up.ps1
+npm start
+
+Następnie:
+
+Otwórz n8n pod http://127.0.0.1:5678.
+
+Zaimportuj workflowy z n8n/workflows/.
+
+Podepnij własne credential modelu do węzłów modelu i aktywuj workflowy.
+
+Otwórz Workbench pod http://127.0.0.1:7654.
+
+Szczegóły konfiguracji MR04/MR05, trybu testowego i limitu wywołań opisuje n8n/README.md. Do repozytorium nie trafiają .env ani .data/market-radar.sqlite.
+
+Kontrola procesu MR04/MR05
+
+Każde wywołanie webhooka n8n zawiera jedną paczkę. Aplikacja, nie workflow n8n, jest właścicielem kolejki: dzieli rekordy, mierzy postęp, ogranicza tempo, zapisuje wynik pojedynczej paczki i obsługuje zatrzymanie/wznowienie.
+
+TEST wysyła dokładnie jedną paczkę do webhook-test; przed wywołaniem n8n musi nasłuchiwać zdarzenia testowego.
+
+PRODUCTION przetwarza pozostałą kolejkę sekwencyjnie.
+
+Model może zostać wymieniony w n8n bez zmiany aplikacji. Konfiguracja domyślna ma trzy próby ponowienia błędów przejściowych co 10 sekund.
+
+Kontrola jakości
+
 npm run ci
-```
 
-## Status
+CI w GitHub Actions używa Node.js 22 i uruchamia kontrolę składni, testy modułów, smoke testy oraz walidację kontraktu Discovery Plan.
 
-**Working prototype / portfolio project**
+Status
 
-Aktualna wersja działa lokalnie i wykorzystuje Apify jako provider danych z Meta Ads Library oraz n8n jako warstwę LLM.
+Working prototype / portfolio project.
 
-Projekt jest narzędziem researchowym. Wyniki wymagają interpretacji człowieka i nie powinny być traktowane jako potwierdzenie sprzedaży, rentowności ani skuteczności reklam.
+Projekt pokazuje przejście od jednorazowo spiętego automatu do obsługiwalnego narzędzia researchowego: z widocznym stanem pracy, odzyskiwaniem po błędzie, kontrolą kosztu modelu i interfejsem do interpretacji danych.

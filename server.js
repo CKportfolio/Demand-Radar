@@ -11,6 +11,7 @@ const {
   listProjects,
   getProjectWithVersions,
   getProjectById,
+  deleteProject,
 } = require('./src/db/projectRepository');
 const {
   saveProjectPlanVersion,
@@ -25,37 +26,73 @@ const {
   approveQueryPlan,
 } = require('./src/db/queryPlanRepository');
 const {
+  getResearchRunById,
   getResearchRunWithQueryRuns,
   getLatestResearchRunWithQueryRuns,
   getResearchRunAds,
+  countResearchRunAds,
+  getProjectAdDetails,
   getResearchRunRelevanceSummary,
   getResearchRunLifecycleSummary,
   getProjectRelevancePendingCount,
+  getProjectMr05PendingCount,
   getProjectAdsForRelevanceReview,
+  getProjectAdsForMr05Review,
   applyMr04Decisions,
+  applyMr05Decisions,
   setProjectAdManualRelevance,
   restoreProjectAdRelevanceToMr04,
+  getProjectRelevanceResetCount,
+  restoreProjectRelevanceBatch,
   rebuildOfferFamilies,
   getProjectOfferFamilies,
 } = require('./src/db/metaResearchRepository');
+const {
+  saveRelevanceJobProgress,
+  getRelevanceJobProgress,
+  clearRelevanceJobProgress,
+  markInterruptedRelevanceJobs,
+} = require('./src/db/relevanceJobRepository');
 const { createMetaAdsHarvester } = require('./src/meta/metaAdsHarvester');
-const { runMr04Webhook } = require('./src/meta/mr04RelevanceFilter');
+const { runRelevanceWebhook } = require('./src/meta/mr04RelevanceFilter');
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 7654);
 const N8N_BASE_URL = (process.env.N8N_BASE_URL || 'http://127.0.0.1:5678').replace(/\/+$/, '');
 const MR03_WEBHOOK_URL = (process.env.MR03_WEBHOOK_URL || `${N8N_BASE_URL}/webhook/mr03-query-planner`).replace(/\/+$/, '');
-const MR04_WEBHOOK_URL = (process.env.MR04_WEBHOOK_URL || `${N8N_BASE_URL}/webhook/mr04-filter-ads`).replace(/\/+$/, '');
-const MR04_TEST_WEBHOOK_URL = (process.env.MR04_TEST_WEBHOOK_URL || `${N8N_BASE_URL}/webhook-test/mr04-filter-ads`).replace(/\/+$/, '');
+const MR04_WEBHOOK_URL = (process.env.MR04_WEBHOOK_URL || `${N8N_BASE_URL}/webhook/mr04-filter-ads-paced-v4`).replace(/\/+$/, '');
+const MR04_TEST_WEBHOOK_URL = (process.env.MR04_TEST_WEBHOOK_URL || `${N8N_BASE_URL}/webhook-test/mr04-filter-ads-paced-v4`).replace(/\/+$/, '');
+const MR05_WEBHOOK_URL = (process.env.MR05_WEBHOOK_URL || `${N8N_BASE_URL}/webhook/mr05-resolve-potential-v1`).replace(/\/+$/, '');
+const MR05_TEST_WEBHOOK_URL = (process.env.MR05_TEST_WEBHOOK_URL || `${N8N_BASE_URL}/webhook-test/mr05-resolve-potential-v1`).replace(/\/+$/, '');
 const N8N_REQUEST_TIMEOUT_MS = Number(process.env.N8N_REQUEST_TIMEOUT_MS || 120000);
-const MR04_REQUEST_TIMEOUT_MS = Number(process.env.MR04_REQUEST_TIMEOUT_MS || 300000);
+const RELEVANCE_REQUEST_TIMEOUT_MS = Number(process.env.RELEVANCE_REQUEST_TIMEOUT_MS || process.env.MR04_REQUEST_TIMEOUT_MS || 300000);
+const RELEVANCE_MAX_BATCH_SIZE = boundedInteger(process.env.RELEVANCE_MAX_BATCH_SIZE, 200, 1, 200);
+const RELEVANCE_DEFAULT_BATCH_SIZE = boundedInteger(
+  process.env.RELEVANCE_BATCH_SIZE || process.env.MR04_BATCH_SIZE,
+  20,
+  1,
+  RELEVANCE_MAX_BATCH_SIZE,
+);
+const RELEVANCE_REQUESTS_PER_MINUTE = boundedInteger(process.env.RELEVANCE_REQUESTS_PER_MINUTE || process.env.MR04_REQUESTS_PER_MINUTE, 14, 1, 14);
+const RELEVANCE_REQUEST_INTERVAL_MS = Math.ceil(60000 / RELEVANCE_REQUESTS_PER_MINUTE) + 250;
 const HEALTH_TIMEOUT_MS = 3000;
+const mr04ResetProgressByProject = new Map();
+let activeRelevanceJob = null;
+let relevanceLastRequestStartedAt = 0;
 
 const INDEX_FILE = path.join(__dirname, 'index.html');
+const PUBLIC_DIR = path.join(__dirname, 'public');
 const SCHEMA_FILE = path.join(__dirname, 'docs', 'architecture', 'DiscoveryPlanV1.schema.json');
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  const number = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
 const { db, dbPath } = initDatabase();
+markInterruptedRelevanceJobs(db);
 const metaHarvester = createMetaAdsHarvester(db);
 
 const schemaJson = JSON.parse(fs.readFileSync(SCHEMA_FILE, 'utf8'));
@@ -93,6 +130,35 @@ function sendText(res, statusCode, text, contentType = 'text/plain; charset=utf-
     'Cache-Control': 'no-store',
   });
   res.end(text);
+}
+
+function servePublicAsset(res, pathname) {
+  let relativePath;
+  try {
+    relativePath = decodeURIComponent(pathname.slice('/assets/'.length));
+  } catch {
+    return sendText(res, 400, 'Invalid asset path');
+  }
+
+  const resolved = path.resolve(PUBLIC_DIR, relativePath);
+  if (!resolved.startsWith(`${path.resolve(PUBLIC_DIR)}${path.sep}`)) {
+    return sendText(res, 403, 'Forbidden');
+  }
+
+  const extension = path.extname(resolved).toLowerCase();
+  const contentTypes = {
+    '.css': 'text/css; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+  };
+
+  if (!contentTypes[extension] || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    return sendText(res, 404, 'Asset not found');
+  }
+
+  return sendText(res, 200, fs.readFileSync(resolved), contentTypes[extension]);
 }
 
 function readJsonBody(req) {
@@ -487,7 +553,7 @@ async function handleGenerateQueryPlan(req, res, projectId) {
         upstreamStatus: response.status,
         durationMs,
         targetUrl: MR03_WEBHOOK_URL,
-        error: 'MR03 response is not valid JSON',
+        error: 'Planowanie zapytań (MR03) zwróciło odpowiedź, która nie jest poprawnym JSON-em.',
       });
     }
 
@@ -497,7 +563,7 @@ async function handleGenerateQueryPlan(req, res, projectId) {
         upstreamStatus: response.status,
         durationMs,
         targetUrl: MR03_WEBHOOK_URL,
-        error: 'MR03 webhook returned non-2xx response',
+        error: 'Planowanie zapytań (MR03) zwróciło błąd webhooka.',
         data: parsed,
       });
     }
@@ -510,7 +576,7 @@ async function handleGenerateQueryPlan(req, res, projectId) {
         upstreamStatus: response.status,
         durationMs,
         targetUrl: MR03_WEBHOOK_URL,
-        error: 'MR03 response does not contain seedPlans[]',
+        error: 'Odpowiedź Planowania zapytań (MR03) nie zawiera seedPlans[].',
         data: parsed,
       });
     }
@@ -587,7 +653,7 @@ async function handleGenerateQueryPlan(req, res, projectId) {
       durationMs,
       targetUrl: MR03_WEBHOOK_URL,
       error: error.name === 'TimeoutError'
-        ? `MR03 request timed out after ${Math.floor(N8N_REQUEST_TIMEOUT_MS / 1000)} seconds`
+        ? `Planowanie zapytań (MR03) przekroczyło limit ${Math.floor(N8N_REQUEST_TIMEOUT_MS / 1000)} sekund.`
         : error.message,
     });
   }
@@ -734,18 +800,34 @@ async function handleGetMetaResearchRun(req, res, runId) {
   });
 }
 
-async function handleGetMetaResearchAds(req, res, runId, requestUrl) {
+async function handleGetMetaResearchStats(req, res, runId) {
   const run = getResearchRunWithQueryRuns(db, runId);
   if (!run) {
     return sendJson(res, 404, { ok: false, error: 'Meta research run not found' });
   }
 
-  const rebuildSummary = rebuildOfferFamilies(db, run.projectId);
+  return sendJson(res, 200, {
+    ok: true,
+    run,
+    relevanceSummary: getResearchRunRelevanceSummary(db, runId),
+    lifecycleSummary: getResearchRunLifecycleSummary(db, runId, {}),
+    refreshedAt: new Date().toISOString(),
+  });
+}
+
+async function handleGetMetaResearchAds(req, res, runId, requestUrl) {
+  const includeMeta = requestUrl.searchParams.get('includeMeta') !== '0';
+  const run = includeMeta
+    ? getResearchRunWithQueryRuns(db, runId)
+    : getResearchRunById(db, runId);
+  if (!run) {
+    return sendJson(res, 404, { ok: false, error: 'Meta research run not found' });
+  }
 
   const filters = {
     queryText: requestUrl.searchParams.get('query') || '',
     seedText: requestUrl.searchParams.get('seed') || '',
-    relevanceScope: requestUrl.searchParams.get('relevance') || 'USEFUL',
+    relevanceScope: requestUrl.searchParams.get('relevance') || 'ALL',
     pageName: requestUrl.searchParams.get('page') || '',
     activeState: requestUrl.searchParams.get('active') || 'ALL',
     minReach: requestUrl.searchParams.get('minReach') || '',
@@ -760,39 +842,41 @@ async function handleGetMetaResearchAds(req, res, runId, requestUrl) {
     sortDirection: requestUrl.searchParams.get('sortDirection') || 'desc',
   };
 
-  const ads = getResearchRunAds(db, runId, filters);
-  const relevanceSummary = getResearchRunRelevanceSummary(db, runId);
-  const lifecycleSummary = getResearchRunLifecycleSummary(db, runId, filters);
-  const familyClass = requestUrl.searchParams.get('familyClass') || 'ALL';
-  const familyStatus = requestUrl.searchParams.get('familyStatus') || 'ALL';
-  const familyPattern = requestUrl.searchParams.get('familyPattern') || 'ALL';
-
-  const offerFamilies = getProjectOfferFamilies(db, run.projectId, {
-    familyClass,
-    familyStatus,
-    familyPattern,
-    runId,
+  const limit = Math.max(1, Math.min(100, parseOptionalInt(requestUrl.searchParams.get('limit')) || 20));
+  const offset = Math.max(0, parseOptionalInt(requestUrl.searchParams.get('offset')) || 0);
+  const knownTotal = parseOptionalInt(requestUrl.searchParams.get('knownTotal'));
+  const total = !includeMeta && knownTotal != null && knownTotal >= 0
+    ? knownTotal
+    : countResearchRunAds(db, runId, filters);
+  const ads = getResearchRunAds(db, runId, filters, {
+    limit,
+    offset,
   });
 
   return sendJson(res, 200, {
     ok: true,
-    run,
+    run: includeMeta ? run : undefined,
     filters,
-    rebuildSummary,
-    relevanceSummary,
-    lifecycleSummary,
-    offerFamilies,
     ads,
+    pagination: {
+      limit,
+      offset,
+      returned: ads.length,
+      total,
+      nextOffset: offset + ads.length,
+      hasMore: offset + ads.length < total,
+    },
+    relevanceSummary: includeMeta ? getResearchRunRelevanceSummary(db, runId) : undefined,
+    lifecycleSummary: includeMeta ? getResearchRunLifecycleSummary(db, runId, filters) : undefined,
   });
 }
 
 async function handleGetMetaResearchOfferFamilies(req, res, runId, requestUrl) {
-  const run = getResearchRunWithQueryRuns(db, runId);
+  const run = getResearchRunById(db, runId);
   if (!run) {
     return sendJson(res, 404, { ok: false, error: 'Meta research run not found' });
   }
 
-  const summary = rebuildOfferFamilies(db, run.projectId);
   const familyClass = requestUrl.searchParams.get('familyClass') || 'ALL';
   const familyStatus = requestUrl.searchParams.get('familyStatus') || 'ALL';
   const familyPattern = requestUrl.searchParams.get('familyPattern') || 'ALL';
@@ -808,7 +892,6 @@ async function handleGetMetaResearchOfferFamilies(req, res, runId, requestUrl) {
     ok: true,
     runId,
     projectId: run.projectId,
-    summary,
     familyClass,
     familyStatus,
     familyPattern,
@@ -829,7 +912,7 @@ async function handleRebuildProjectOfferFamilies(req, res, projectId) {
   });
 }
 
-function simplifyQueryPlanForMr04(queryPlan) {
+function simplifyQueryPlanForRelevance(queryPlan) {
   if (!queryPlan) return null;
 
   return {
@@ -845,31 +928,302 @@ function simplifyQueryPlanForMr04(queryPlan) {
       concept: seedPlan.concept,
       audience: seedPlan.audience || [],
       formatHints: seedPlan.formatHints || [],
-      queries: (seedPlan.queries || []).map(query => ({
-        text: query.text,
-        queryType: query.queryType,
-        priority: query.priority,
-        enabled: query.enabled !== false,
-      })),
     })),
   };
 }
 
-async function handleGetProjectRelevancePending(req, res, projectId) {
+const RELEVANCE_STAGES = {
+  MR04: {
+    label: 'Filtrowanie danych (MR04)',
+    getPendingCount: getProjectRelevancePendingCount,
+    getCandidates: getProjectAdsForRelevanceReview,
+    applyDecisions: applyMr04Decisions,
+    productionUrl: MR04_WEBHOOK_URL,
+    testUrl: MR04_TEST_WEBHOOK_URL,
+    pendingLabel: 'niezaklasyfikowanych',
+  },
+  MR05: {
+    label: 'Rozstrzyganie wyników niejednoznacznych (MR05)',
+    getPendingCount: getProjectMr05PendingCount,
+    getCandidates: getProjectAdsForMr05Review,
+    applyDecisions: applyMr05Decisions,
+    productionUrl: MR05_WEBHOOK_URL,
+    testUrl: MR05_TEST_WEBHOOK_URL,
+    pendingLabel: 'potencjalnych',
+  },
+};
+
+function getRelevanceStageConfig(stage) {
+  const normalized = String(stage || '').trim().toUpperCase();
+  const config = RELEVANCE_STAGES[normalized];
+  if (!config) throw new Error(`Unsupported relevance stage: ${stage}`);
+  return { stage: normalized, ...config };
+}
+
+function idleRelevanceProgress(projectId, stage) {
+  return {
+    projectId,
+    stage,
+    status: 'IDLE',
+    phase: 'IDLE',
+    totalBatches: 0,
+    completedBatches: 0,
+    totalAds: 0,
+    processedAds: 0,
+    error: null,
+  };
+}
+
+function updateRelevanceProgress(projectId, stage, patch) {
+  const current = getRelevanceJobProgress(db, projectId, stage)
+    || idleRelevanceProgress(projectId, stage);
+  return saveRelevanceJobProgress(db, {
+    ...current,
+    ...patch,
+    projectId,
+    stage,
+    updatedAt: patch.updatedAt || new Date().toISOString(),
+  });
+}
+
+async function handleGetProjectRelevancePending(req, res, projectId, stage = 'MR04') {
   const project = getProjectById(db, projectId);
   if (!project) {
     return sendJson(res, 404, { ok: false, error: 'Project not found' });
   }
 
-  const pending = getProjectRelevancePendingCount(db, projectId);
+  const config = getRelevanceStageConfig(stage);
+  const pending = config.getPendingCount(db, projectId);
   return sendJson(res, 200, {
     ok: true,
     projectId,
+    stage: config.stage,
     pending,
   });
 }
 
-async function handleRunProjectRelevanceFilter(req, res, projectId) {
+
+function waitMs(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, Math.max(0, milliseconds)));
+}
+
+function buildRelevanceErrorDetails(error, stage) {
+  return {
+    message: error?.message || `Nieznany błąd ${stage}`,
+    code: error?.code || null,
+    upstreamStatus: error?.upstreamStatus || null,
+    data: error?.data || null,
+  };
+}
+
+async function waitForRelevanceRateLimit(projectId, stage, completedBeforeBatch) {
+  const elapsed = Date.now() - relevanceLastRequestStartedAt;
+  const waitFor = Math.max(0, RELEVANCE_REQUEST_INTERVAL_MS - elapsed);
+
+  if (waitFor > 0) {
+    updateRelevanceProgress(projectId, stage, {
+      phase: 'RATE_LIMIT_WAIT',
+      currentBatch: completedBeforeBatch + 1,
+      nextRequestInMs: waitFor,
+    });
+    await waitMs(waitFor);
+  }
+
+  relevanceLastRequestStartedAt = Date.now();
+}
+
+function isRelevanceStopRequested(projectId, stage) {
+  return Boolean(
+    activeRelevanceJob
+    && activeRelevanceJob.projectId === projectId
+    && activeRelevanceJob.stage === stage
+    && activeRelevanceJob.stopRequested,
+  );
+}
+
+function savePausedRelevanceProgress({
+  projectId,
+  stage,
+  mode,
+  batchSize,
+  candidates,
+  aggregate,
+}) {
+  const now = new Date().toISOString();
+  const current = getRelevanceJobProgress(db, projectId, stage)
+    || idleRelevanceProgress(projectId, stage);
+  updateRelevanceProgress(projectId, stage, {
+    status: 'PAUSED',
+    phase: 'PAUSED',
+    stopRequested: false,
+    result: {
+      ...aggregate,
+      projectId,
+      stage,
+      pendingBefore: candidates.length,
+      totalBatches: Number(current.totalBatches || 0),
+      batchSize,
+      batchesCompleted: Number(current.completedBatches || 0),
+      mode,
+      paused: true,
+    },
+    error: null,
+    pausedAt: now,
+    updatedAt: now,
+    finishedAt: now,
+  });
+}
+
+async function runRelevanceJob({
+  stage,
+  project,
+  mode,
+  batchSize,
+  webhookUrl,
+  candidates,
+  batches,
+  resumeBaseAds = 0,
+  resumeBaseBatches = 0,
+  jobTotalAds,
+  jobTotalBatches,
+  queryPlanPayload,
+}) {
+  const config = getRelevanceStageConfig(stage);
+  const projectId = project.id;
+  const aggregate = {
+    processed: 0,
+    keep: 0,
+    potential: 0,
+    reject: 0,
+    skippedManual: 0,
+    missing: 0,
+    invalid: 0,
+    skippedNotPotential: 0,
+    durationMs: 0,
+    filterVersion: null,
+    upstreamStatus: null,
+  };
+
+  try {
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+      if (isRelevanceStopRequested(projectId, stage)) {
+        savePausedRelevanceProgress({ projectId, stage, mode, batchSize, candidates, aggregate });
+        return;
+      }
+
+      const batchAds = batches[batchIndex];
+      await waitForRelevanceRateLimit(projectId, stage, resumeBaseBatches + batchIndex);
+
+      if (isRelevanceStopRequested(projectId, stage)) {
+        savePausedRelevanceProgress({ projectId, stage, mode, batchSize, candidates, aggregate });
+        return;
+      }
+
+      updateRelevanceProgress(projectId, stage, {
+        phase: 'MODEL_REQUEST',
+        currentBatch: resumeBaseBatches + batchIndex + 1,
+        nextRequestInMs: 0,
+      });
+
+      const relevanceResult = await runRelevanceWebhook({
+        stage,
+        webhookUrl,
+        timeoutMs: RELEVANCE_REQUEST_TIMEOUT_MS,
+        payload: {
+          stage,
+          mode,
+          projectId,
+          projectName: project.name,
+          projectBrief: String(project.brief || '').slice(0, 2500),
+          queryPlan: queryPlanPayload,
+          batch: {
+            index: resumeBaseBatches + batchIndex + 1,
+            total: jobTotalBatches,
+            size: batchAds.length,
+          },
+          ads: batchAds,
+        },
+      });
+
+      const applied = config.applyDecisions(db, {
+        projectId,
+        decisions: relevanceResult.decisions,
+        filterVersion: relevanceResult.filterVersion,
+      });
+
+      aggregate.processed += applied.processed;
+      aggregate.keep += applied.keep;
+      aggregate.potential += applied.potential;
+      aggregate.reject += applied.reject;
+      aggregate.skippedManual += applied.skippedManual;
+      aggregate.skippedNotPotential += applied.skippedNotPotential || 0;
+      aggregate.missing += applied.missing;
+      aggregate.invalid += applied.invalid + relevanceResult.invalidDecisions.length;
+      aggregate.durationMs += relevanceResult.durationMs;
+      aggregate.filterVersion = relevanceResult.filterVersion;
+      aggregate.upstreamStatus = relevanceResult.upstreamStatus;
+
+      updateRelevanceProgress(projectId, stage, {
+        phase: 'BATCH_APPLIED',
+        completedBatches: resumeBaseBatches + batchIndex + 1,
+        processedAds: Math.min(jobTotalAds, resumeBaseAds + (batchIndex * batchSize) + batchAds.length),
+        result: { ...aggregate },
+      });
+
+      if (batchIndex + 1 < batches.length && isRelevanceStopRequested(projectId, stage)) {
+        savePausedRelevanceProgress({ projectId, stage, mode, batchSize, candidates, aggregate });
+        return;
+      }
+    }
+
+    const finishedAt = new Date().toISOString();
+    const result = {
+      ...aggregate,
+      projectId,
+      stage,
+      pendingBefore: candidates.length,
+      totalBatches: jobTotalBatches,
+      batchSize,
+      batchesCompleted: jobTotalBatches,
+      mode,
+    };
+
+    updateRelevanceProgress(projectId, stage, {
+      status: 'COMPLETED',
+      phase: 'COMPLETED',
+      completedBatches: jobTotalBatches,
+      processedAds: jobTotalAds,
+      result,
+      error: null,
+      updatedAt: finishedAt,
+      finishedAt,
+    });
+  } catch (error) {
+    const finishedAt = new Date().toISOString();
+    updateRelevanceProgress(projectId, stage, {
+      status: 'FAILED',
+      phase: 'FAILED',
+      error: buildRelevanceErrorDetails(error, stage),
+      result: {
+        ...aggregate,
+        projectId,
+        stage,
+        pendingBefore: candidates.length,
+        totalBatches: jobTotalBatches,
+        batchSize,
+        mode,
+      },
+      updatedAt: finishedAt,
+      finishedAt,
+    });
+  } finally {
+    if (activeRelevanceJob?.projectId === projectId && activeRelevanceJob?.stage === stage) {
+      activeRelevanceJob = null;
+    }
+  }
+}
+
+async function handleRunProjectRelevanceFilter(req, res, projectId, stage = 'MR04') {
   let body;
 
   try {
@@ -883,22 +1237,56 @@ async function handleRunProjectRelevanceFilter(req, res, projectId) {
     return sendJson(res, 404, { ok: false, error: 'Project not found' });
   }
 
-  const mode = body.mode === 'production' ? 'production' : 'test';
-  const mr04WebhookUrl = mode === 'production' ? MR04_WEBHOOK_URL : MR04_TEST_WEBHOOK_URL;
-  const productionBatchSize = 500;
-  const minFallbackBatchSize = 50;
-
-  const queryPlan = getLatestQueryPlanForProject(db, projectId);
-  const includeResolved = body.force === true;
-  const pendingCount = getProjectRelevancePendingCount(db, projectId);
-  const limit = parseOptionalInt(body.limit);
-
-  let effectiveLimit = limit || 1500;
-  if (mode === 'production' && !includeResolved) {
-    effectiveLimit = limit || pendingCount || 1500;
+  const config = getRelevanceStageConfig(stage);
+  if (mr04ResetProgressByProject.get(projectId)?.status === 'RUNNING') {
+    return sendJson(res, 409, {
+      ok: false,
+      error: 'Trwa cofanie segregacji. Poczekaj na zakończenie resetu przed uruchomieniem klasyfikacji.',
+    });
+  }
+  if (activeRelevanceJob) {
+    const activeConfig = getRelevanceStageConfig(activeRelevanceJob.stage);
+    const progress = getRelevanceJobProgress(
+      db,
+      activeRelevanceJob.projectId,
+      activeRelevanceJob.stage,
+    );
+    return sendJson(res, 409, {
+      ok: false,
+      error: `${activeConfig.label} już trwa. Poczekaj na zakończenie albo zatrzymaj bieżący proces.`,
+      activeProjectId: activeRelevanceJob.projectId,
+      activeStage: activeRelevanceJob.stage,
+      progress,
+    });
   }
 
-  const candidates = getProjectAdsForRelevanceReview(db, projectId, {
+  const mode = body.mode === 'test' ? 'test' : 'production';
+  const webhookUrl = mode === 'production' ? config.productionUrl : config.testUrl;
+  const batchSize = boundedInteger(
+    body.batchSize,
+    RELEVANCE_DEFAULT_BATCH_SIZE,
+    1,
+    RELEVANCE_MAX_BATCH_SIZE,
+  );
+  const previousProgress = getRelevanceJobProgress(db, projectId, config.stage);
+  const continuesProductionRun = mode === 'production'
+    && previousProgress?.mode === 'production'
+    && ['FAILED', 'PAUSED'].includes(previousProgress?.status);
+  const resumeBaseAds = continuesProductionRun
+    ? Math.max(0, Number(previousProgress.processedAds || 0))
+    : 0;
+  const resumeBaseBatches = continuesProductionRun
+    ? Math.max(0, Number(previousProgress.completedBatches || 0))
+    : 0;
+  const includeResolved = body.force === true;
+  const pendingCount = config.getPendingCount(db, projectId);
+  const requestedLimit = parseOptionalInt(body.limit);
+  const normalLimit = Math.max(1, Math.min(10000, requestedLimit || pendingCount || 1500));
+  const effectiveLimit = mode === 'test'
+    ? Math.min(batchSize, normalLimit)
+    : normalLimit;
+  const queryPlan = getLatestQueryPlanForProject(db, projectId);
+  const candidates = config.getCandidates(db, projectId, {
     includeResolved,
     limit: effectiveLimit,
   });
@@ -906,21 +1294,17 @@ async function handleRunProjectRelevanceFilter(req, res, projectId) {
   if (!candidates.length) {
     return sendJson(res, 200, {
       ok: true,
+      started: false,
       projectId,
-      pendingBefore: 0,
+      stage,
+      message: `Brak reklam ${config.pendingLabel} wymagających procesu: ${config.label}.`,
       processed: 0,
-      keep: 0,
-      potential: 0,
-      reject: 0,
-      skippedManual: 0,
-      missing: 0,
-      invalid: 0,
-      message: 'Brak reklam wymagajacych analizy relevance.',
+      totalBatches: 0,
+      totalAds: 0,
     });
   }
 
-  const queryPlanPayload = simplifyQueryPlanForMr04(queryPlan);
-  const baseAds = candidates.map(ad => ({
+  const ads = candidates.map(ad => ({
     adArchiveId: ad.adArchiveId,
     pageName: ad.pageName,
     title: ad.title,
@@ -932,182 +1316,144 @@ async function handleRunProjectRelevanceFilter(req, res, projectId) {
     isActive: ad.isActive,
     longevityCategory: ad.longevityCategory,
     runtimeDays: ad.runtimeDays,
+    mr04Decision: ad.mr04Decision,
+    mr04Confidence: ad.mr04Confidence,
+    mr04ReasonCode: ad.mr04ReasonCode,
+    mr04Reason: ad.mr04Reason,
     matchedQueries: ad.matchedQueries,
     matchedSeeds: ad.matchedSeeds,
   }));
-
   const batches = [];
-  if (mode === 'production') {
-    for (let index = 0; index < baseAds.length; index += productionBatchSize) {
-      batches.push(baseAds.slice(index, index + productionBatchSize));
-    }
-  } else {
-    batches.push(baseAds);
+  for (let index = 0; index < ads.length; index += batchSize) {
+    batches.push(ads.slice(index, index + batchSize));
+  }
+  const jobTotalAds = resumeBaseAds + ads.length;
+  const jobTotalBatches = resumeBaseBatches + batches.length;
+
+  const startedAt = new Date().toISOString();
+  activeRelevanceJob = {
+    projectId,
+    stage,
+    mode,
+    stopRequested: false,
+    stopRequestedAt: null,
+  };
+  saveRelevanceJobProgress(db, {
+    projectId,
+    stage,
+    status: 'RUNNING',
+    phase: 'QUEUED',
+    mode,
+    batchSize,
+    maxBatchSize: RELEVANCE_MAX_BATCH_SIZE,
+    rateLimitRpm: RELEVANCE_REQUESTS_PER_MINUTE,
+    totalBatches: jobTotalBatches,
+    completedBatches: resumeBaseBatches,
+    currentBatch: resumeBaseBatches,
+    totalAds: jobTotalAds,
+    processedAds: resumeBaseAds,
+    resumed: continuesProductionRun,
+    startedAt,
+    updatedAt: startedAt,
+    finishedAt: null,
+    error: null,
+    result: null,
+  });
+
+  setImmediate(() => {
+    runRelevanceJob({
+      stage,
+      project,
+      mode,
+      batchSize,
+      webhookUrl,
+      candidates,
+      batches,
+      resumeBaseAds,
+      resumeBaseBatches,
+      jobTotalAds,
+      jobTotalBatches,
+      queryPlanPayload: simplifyQueryPlanForRelevance(queryPlan),
+    });
+  });
+
+  return sendJson(res, 202, {
+    ok: true,
+    started: true,
+    projectId,
+    stage,
+    mode,
+    batchSize,
+    maxBatchSize: RELEVANCE_MAX_BATCH_SIZE,
+    rateLimitRpm: RELEVANCE_REQUESTS_PER_MINUTE,
+    totalBatches: jobTotalBatches,
+    completedBatches: resumeBaseBatches,
+    totalAds: jobTotalAds,
+    processedAds: resumeBaseAds,
+    resumed: continuesProductionRun,
+    testSingleBatch: mode === 'test',
+    progressUrl: `/api/projects/${encodeURIComponent(projectId)}/ads/relevance/${stage.toLowerCase()}/progress`,
+  });
+}
+
+async function handleStopProjectRelevanceFilter(req, res, projectId, stage = 'MR04') {
+  const config = getRelevanceStageConfig(stage);
+  const project = getProjectById(db, projectId);
+  if (!project) {
+    return sendJson(res, 404, { ok: false, error: 'Project not found' });
   }
 
-  try {
-    const aggregate = {
-      processed: 0,
-      keep: 0,
-      potential: 0,
-      reject: 0,
-      skippedManual: 0,
-      missing: 0,
-      invalid: 0,
-      durationMs: 0,
-      filterVersion: null,
-      upstreamStatus: null,
-      batchesCompleted: 0,
-      fallbackSplits: 0,
-    };
-
-    const isRetryableBatchError = error => (
-      error && (
-        error.code === 'MR04_INVALID_SHAPE'
-        || error.code === 'MR04_INVALID_JSON'
-        || error.code === 'MR04_WORKFLOW_ERROR'
-      )
-    );
-
-    const runBatchWithFallback = async batchAds => {
-      const payload = {
-        projectId,
-        projectName: project.name,
-        projectBrief: project.brief,
-        queryPlan: queryPlanPayload,
-        ads: batchAds,
-      };
-
-      try {
-        const mr04Result = await runMr04Webhook({
-          webhookUrl: mr04WebhookUrl,
-          timeoutMs: MR04_REQUEST_TIMEOUT_MS,
-          payload,
-        });
-
-        const applied = applyMr04Decisions(db, {
-          projectId,
-          decisions: mr04Result.decisions,
-          filterVersion: mr04Result.filterVersion,
-        });
-
-        aggregate.processed += applied.processed;
-        aggregate.keep += applied.keep;
-        aggregate.potential += applied.potential;
-        aggregate.reject += applied.reject;
-        aggregate.skippedManual += applied.skippedManual;
-        aggregate.missing += applied.missing;
-        aggregate.invalid += applied.invalid + mr04Result.invalidDecisions.length;
-        aggregate.durationMs += mr04Result.durationMs;
-        aggregate.filterVersion = mr04Result.filterVersion;
-        aggregate.upstreamStatus = mr04Result.upstreamStatus;
-        aggregate.batchesCompleted += 1;
-        return;
-      } catch (error) {
-        if (
-          mode === 'production'
-          && batchAds.length > minFallbackBatchSize
-          && isRetryableBatchError(error)
-        ) {
-          const middle = Math.ceil(batchAds.length / 2);
-          const left = batchAds.slice(0, middle);
-          const right = batchAds.slice(middle);
-          aggregate.fallbackSplits += 1;
-
-          await runBatchWithFallback(left);
-          await runBatchWithFallback(right);
-          return;
-        }
-
-        throw error;
-      }
-    };
-
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-      const batchAds = batches[batchIndex];
-
-      try {
-        await runBatchWithFallback(batchAds);
-      } catch (error) {
-        const basePayload = {
-          ok: false,
-          projectId,
-          error: error.message,
-          mode,
-          targetUrl: mr04WebhookUrl,
-          pendingBefore: candidates.length,
-          batchSize: mode === 'production' ? productionBatchSize : baseAds.length,
-          totalBatches: batches.length,
-          failedBatchIndex: batchIndex + 1,
-          batchesCompleted: aggregate.batchesCompleted,
-          fallbackSplits: aggregate.fallbackSplits,
-          partial: {
-            processed: aggregate.processed,
-            keep: aggregate.keep,
-            potential: aggregate.potential,
-            reject: aggregate.reject,
-            skippedManual: aggregate.skippedManual,
-            missing: aggregate.missing,
-            invalid: aggregate.invalid,
-            durationMs: aggregate.durationMs,
-            filterVersion: aggregate.filterVersion,
-          },
-        };
-
-        if (error.code === 'MR04_NON_2XX') {
-          return sendJson(res, 502, {
-            ...basePayload,
-            upstreamStatus: error.upstreamStatus || null,
-            data: error.data || null,
-          });
-        }
-
-        if (error.code === 'MR04_INVALID_JSON' || error.code === 'MR04_INVALID_SHAPE' || error.code === 'MR04_WORKFLOW_ERROR') {
-          return sendJson(res, 502, {
-            ...basePayload,
-            upstreamStatus: error.upstreamStatus || null,
-            data: error.data || null,
-          });
-        }
-
-        if (error.code === 'MR04_REQUEST_FAILED') {
-          return sendJson(res, 502, basePayload);
-        }
-
-        return sendJson(res, 500, basePayload);
-      }
-    }
-
-    return sendJson(res, 200, {
-      ok: true,
-      projectId,
-      pendingBefore: candidates.length,
-      processed: aggregate.processed,
-      keep: aggregate.keep,
-      potential: aggregate.potential,
-      reject: aggregate.reject,
-      skippedManual: aggregate.skippedManual,
-      missing: aggregate.missing,
-      invalid: aggregate.invalid,
-      upstreamStatus: aggregate.upstreamStatus,
-      durationMs: aggregate.durationMs,
-      filterVersion: aggregate.filterVersion,
-      totalBatches: batches.length,
-      batchSize: mode === 'production' ? productionBatchSize : baseAds.length,
-      batchesCompleted: aggregate.batchesCompleted,
-      fallbackSplits: aggregate.fallbackSplits,
-      mode,
-      targetUrl: mr04WebhookUrl,
-    });
-  } catch (error) {
-    return sendJson(res, 500, {
+  if (
+    !activeRelevanceJob
+    || activeRelevanceJob.projectId !== projectId
+    || activeRelevanceJob.stage !== config.stage
+  ) {
+    return sendJson(res, 409, {
       ok: false,
-      projectId,
-      error: error.message,
-      mode,
-      targetUrl: mr04WebhookUrl,
+      error: `${config.label} nie jest teraz uruchomione.`,
+      progress: getRelevanceJobProgress(db, projectId, config.stage),
     });
   }
+
+  if (activeRelevanceJob.mode !== 'production') {
+    return sendJson(res, 409, {
+      ok: false,
+      error: 'Tryb testowy wysyła tylko jedną paczkę i nie wymaga zatrzymywania.',
+    });
+  }
+
+  const stopRequestedAt = new Date().toISOString();
+  activeRelevanceJob.stopRequested = true;
+  activeRelevanceJob.stopRequestedAt = stopRequestedAt;
+  const progress = updateRelevanceProgress(projectId, config.stage, {
+    status: 'RUNNING',
+    phase: 'STOP_REQUESTED',
+    stopRequested: true,
+    stopRequestedAt,
+  });
+
+  return sendJson(res, 202, {
+    ok: true,
+    stopping: true,
+    projectId,
+    stage: config.stage,
+    message: `${config.label} zostanie zatrzymane po zapisaniu bieżącej paczki.`,
+    progress,
+  });
+}
+
+async function handleGetProjectAdDetails(req, res, projectId, adArchiveId) {
+  const project = getProjectById(db, projectId);
+  if (!project) {
+    return sendJson(res, 404, { ok: false, error: 'Project not found' });
+  }
+
+  const ad = getProjectAdDetails(db, projectId, adArchiveId);
+  if (!ad) {
+    return sendJson(res, 404, { ok: false, error: 'Ad not found' });
+  }
+
+  return sendJson(res, 200, { ok: true, ad });
 }
 
 async function handleSetProjectAdManualRelevance(req, res, projectId, adArchiveId) {
@@ -1162,6 +1508,90 @@ async function handleRestoreProjectAdRelevance(req, res, projectId, adArchiveId)
   }
 }
 
+async function handleRestoreProjectRelevance(req, res, projectId) {
+  if (activeRelevanceJob) {
+    const activeConfig = getRelevanceStageConfig(activeRelevanceJob.stage);
+    return sendJson(res, 409, {
+      ok: false,
+      error: `${activeConfig.label} nadal trwa. Zatrzymaj lub zakończ proces przed cofnięciem segregacji.`,
+    });
+  }
+
+  const running = mr04ResetProgressByProject.get(projectId);
+  if (running?.status === 'RUNNING') {
+    return sendJson(res, 409, {
+      ok: false,
+      error: 'Cofanie automatycznej segregacji (MR04/MR05) już trwa.',
+      progress: running,
+    });
+  }
+
+  const total = getProjectRelevanceResetCount(db, projectId);
+  if (!total) {
+    clearRelevanceJobProgress(db, projectId);
+    return sendJson(res, 200, { ok: true, started: false, restored: 0 });
+  }
+
+  const startedAt = new Date().toISOString();
+  mr04ResetProgressByProject.set(projectId, {
+    projectId,
+    status: 'RUNNING',
+    total,
+    restored: 0,
+    percent: 0,
+    startedAt,
+    finishedAt: null,
+    error: null,
+  });
+
+  setImmediate(async () => {
+    let restored = 0;
+    try {
+      while (restored < total) {
+        const changed = restoreProjectRelevanceBatch(db, projectId, 250);
+        if (!changed) break;
+        restored += changed;
+        mr04ResetProgressByProject.set(projectId, {
+          ...mr04ResetProgressByProject.get(projectId),
+          restored,
+          percent: Math.min(100, Math.round((restored / total) * 100)),
+          updatedAt: new Date().toISOString(),
+        });
+        await waitMs(20);
+      }
+
+      const finishedAt = new Date().toISOString();
+      mr04ResetProgressByProject.set(projectId, {
+        ...mr04ResetProgressByProject.get(projectId),
+        status: 'COMPLETED',
+        restored,
+        percent: 100,
+        updatedAt: finishedAt,
+        finishedAt,
+      });
+      clearRelevanceJobProgress(db, projectId);
+    } catch (error) {
+      const finishedAt = new Date().toISOString();
+      mr04ResetProgressByProject.set(projectId, {
+        ...mr04ResetProgressByProject.get(projectId),
+        status: 'FAILED',
+        restored,
+        error: error.message,
+        updatedAt: finishedAt,
+        finishedAt,
+      });
+    }
+  });
+
+  return sendJson(res, 202, {
+    ok: true,
+    started: true,
+    projectId,
+    total,
+    progressUrl: `/api/projects/${encodeURIComponent(projectId)}/ads/relevance/restore-progress`,
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
 
@@ -1172,6 +1602,10 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       return sendText(res, 500, `Cannot read index.html: ${error.message}`);
     }
+  }
+
+  if (req.method === 'GET' && requestUrl.pathname.startsWith('/assets/')) {
+    return servePublicAsset(res, requestUrl.pathname);
   }
 
   if (req.method === 'GET' && requestUrl.pathname === '/api/status') {
@@ -1199,6 +1633,33 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && requestUrl.pathname === '/api/projects') {
     return sendJson(res, 200, listProjects(db));
+  }
+
+  const projectIdForDelete = parseProjectId(requestUrl.pathname);
+  if (req.method === 'DELETE' && projectIdForDelete) {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+
+    if (body.confirm !== true) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: 'Usunięcie projektu wymaga potwierdzenia confirm=true.',
+      });
+    }
+
+    try {
+      const deleted = deleteProject(db, projectIdForDelete);
+      if (!deleted) {
+        return sendJson(res, 404, { ok: false, error: 'Projekt nie istnieje.' });
+      }
+      return sendJson(res, 200, { ok: true, projectId: projectIdForDelete });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: `Nie udało się usunąć projektu: ${error.message}` });
+    }
   }
 
   const projectIdForQueryPlan = parseProjectId(requestUrl.pathname, '/query-plan');
@@ -1243,12 +1704,61 @@ const server = http.createServer(async (req, res) => {
 
   const projectIdForRelevancePending = parseProjectId(requestUrl.pathname, '/ads/relevance/pending-count');
   if (req.method === 'GET' && projectIdForRelevancePending) {
-    return handleGetProjectRelevancePending(req, res, projectIdForRelevancePending);
+    return handleGetProjectRelevancePending(req, res, projectIdForRelevancePending, 'MR04');
+  }
+
+  const projectIdForMr05Pending = parseProjectId(requestUrl.pathname, '/ads/relevance/mr05/pending-count');
+  if (req.method === 'GET' && projectIdForMr05Pending) {
+    return handleGetProjectRelevancePending(req, res, projectIdForMr05Pending, 'MR05');
+  }
+
+  const projectIdForRelevanceProgress = parseProjectId(requestUrl.pathname, '/ads/relevance/progress')
+    || parseProjectId(requestUrl.pathname, '/ads/relevance/mr04/progress');
+  if (req.method === 'GET' && projectIdForRelevanceProgress) {
+    const progress = getRelevanceJobProgress(db, projectIdForRelevanceProgress, 'MR04');
+    return sendJson(res, 200, {
+      ok: true,
+      projectId: projectIdForRelevanceProgress,
+      stage: 'MR04',
+      progress: progress || idleRelevanceProgress(projectIdForRelevanceProgress, 'MR04'),
+    });
+  }
+
+  const projectIdForMr05Progress = parseProjectId(requestUrl.pathname, '/ads/relevance/mr05/progress');
+  if (req.method === 'GET' && projectIdForMr05Progress) {
+    const progress = getRelevanceJobProgress(db, projectIdForMr05Progress, 'MR05');
+    return sendJson(res, 200, {
+      ok: true,
+      projectId: projectIdForMr05Progress,
+      stage: 'MR05',
+      progress: progress || idleRelevanceProgress(projectIdForMr05Progress, 'MR05'),
+    });
+  }
+
+  const projectIdForRelevanceStop = parseProjectId(requestUrl.pathname, '/ads/relevance/mr04/stop')
+    || parseProjectId(requestUrl.pathname, '/ads/relevance/stop');
+  if (req.method === 'POST' && projectIdForRelevanceStop) {
+    return handleStopProjectRelevanceFilter(req, res, projectIdForRelevanceStop, 'MR04');
+  }
+
+  const projectIdForMr05Stop = parseProjectId(requestUrl.pathname, '/ads/relevance/mr05/stop');
+  if (req.method === 'POST' && projectIdForMr05Stop) {
+    return handleStopProjectRelevanceFilter(req, res, projectIdForMr05Stop, 'MR05');
   }
 
   const projectIdForRelevanceRun = parseProjectId(requestUrl.pathname, '/ads/relevance/run');
   if (req.method === 'POST' && projectIdForRelevanceRun) {
-    return handleRunProjectRelevanceFilter(req, res, projectIdForRelevanceRun);
+    return handleRunProjectRelevanceFilter(req, res, projectIdForRelevanceRun, 'MR04');
+  }
+
+  const projectIdForMr05Run = parseProjectId(requestUrl.pathname, '/ads/relevance/mr05/run');
+  if (req.method === 'POST' && projectIdForMr05Run) {
+    return handleRunProjectRelevanceFilter(req, res, projectIdForMr05Run, 'MR05');
+  }
+
+  const projectAdForDetails = parseProjectAdArchive(requestUrl.pathname, '/details');
+  if (req.method === 'GET' && projectAdForDetails) {
+    return handleGetProjectAdDetails(req, res, projectAdForDetails.projectId, projectAdForDetails.adArchiveId);
   }
 
   const projectAdForRestore = parseProjectAdArchive(requestUrl.pathname, '/relevance/restore-mr04');
@@ -1256,9 +1766,34 @@ const server = http.createServer(async (req, res) => {
     return handleRestoreProjectAdRelevance(req, res, projectAdForRestore.projectId, projectAdForRestore.adArchiveId);
   }
 
+  const projectForRestore = parseProjectId(requestUrl.pathname, '/ads/relevance/restore-all');
+  if (req.method === 'POST' && projectForRestore) {
+    return handleRestoreProjectRelevance(req, res, projectForRestore);
+  }
+
+  const projectForRestoreProgress = parseProjectId(requestUrl.pathname, '/ads/relevance/restore-progress');
+  if (req.method === 'GET' && projectForRestoreProgress) {
+    return sendJson(res, 200, {
+      ok: true,
+      projectId: projectForRestoreProgress,
+      progress: mr04ResetProgressByProject.get(projectForRestoreProgress) || {
+        projectId: projectForRestoreProgress,
+        status: 'IDLE',
+        total: 0,
+        restored: 0,
+        percent: 0,
+      },
+    });
+  }
+
   const projectAdForManualRelevance = parseProjectAdArchive(requestUrl.pathname, '/relevance');
   if (req.method === 'POST' && projectAdForManualRelevance) {
     return handleSetProjectAdManualRelevance(req, res, projectAdForManualRelevance.projectId, projectAdForManualRelevance.adArchiveId);
+  }
+
+  const metaResearchRunIdForStats = parseMetaResearchRunId(requestUrl.pathname, '/stats');
+  if (req.method === 'GET' && metaResearchRunIdForStats) {
+    return handleGetMetaResearchStats(req, res, metaResearchRunIdForStats);
   }
 
   const metaResearchRunId = parseMetaResearchRunId(requestUrl.pathname);
@@ -1314,6 +1849,9 @@ server.listen(PORT, HOST, () => {
   console.log(`MR03 planner: ${MR03_WEBHOOK_URL}`);
   console.log(`MR04 relevance (prod): ${MR04_WEBHOOK_URL}`);
   console.log(`MR04 relevance (test): ${MR04_TEST_WEBHOOK_URL}`);
+  console.log(`MR05 relevance (prod): ${MR05_WEBHOOK_URL}`);
+  console.log(`MR05 relevance (test): ${MR05_TEST_WEBHOOK_URL}`);
+  console.log(`Relevance pacing: default ${RELEVANCE_DEFAULT_BATCH_SIZE} ads/batch (UI range 1-${RELEVANCE_MAX_BATCH_SIZE}), max ${RELEVANCE_REQUESTS_PER_MINUTE} requests/min`);
   console.log(`Research provider: ${metaConfig.provider} (${metaConfig.hasToken ? 'token configured' : 'token missing'})`);
   console.log(`Apify actor: ${metaConfig.actorId}`);
   console.log('');

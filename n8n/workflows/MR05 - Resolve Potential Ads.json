@@ -1,0 +1,219 @@
+{
+  "name": "MR05 - Resolve Potential Ads",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mr05-resolve-potential-v1",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "799c46c5-61f8-4d9e-8767-e298e055a7c6",
+      "name": "MR05 Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        304
+      ],
+      "webhookId": "mr05-resolve-potential-v1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst rawAds = Array.isArray(body.ads) ? body.ads : [];\n\nif (!rawAds.length) {\n  throw new Error('MR05 wymaga body.ads[].');\n}\nif (rawAds.length > 200) {\n  throw new Error(`MR05 przyjmuje maksymalnie 200 reklam na wywołanie; otrzymano ${rawAds.length}.`);\n}\n\nfunction clean(value, max = 1400) {\n  return String(value ?? '')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, max);\n}\n\nconst ads = rawAds.map(ad => ({\n  adArchiveId: clean(ad.adArchiveId ?? ad.ad_archive_id ?? ad.metaAdId ?? ad.id, 120),\n  pageName: clean(ad.pageName ?? ad.page_name, 250),\n  title: clean(ad.title ?? ad.headline, 350),\n  body: clean(ad.bodyText ?? ad.body_text ?? ad.body ?? ad.adText, 1400),\n  description: clean(ad.description ?? ad.adLinkDescription, 350),\n  linkUrl: clean(ad.destinationUrl ?? ad.destination_url ?? ad.adLibraryUrl ?? ad.ad_library_url, 500),\n  startDate: ad.startDate ?? ad.start_date ?? null,\n  endDate: ad.endDate ?? ad.end_date ?? null,\n  isActive: ad.isActive ?? ad.is_active ?? null,\n  longevityCategory: ad.longevityCategory ?? ad.longevity_category ?? null,\n  runtimeDays: ad.runtimeDays ?? ad.runtime_days ?? null,\n  mr04Decision: ad.mr04Decision ?? null,\n  mr04Confidence: ad.mr04Confidence ?? null,\n  mr04ReasonCode: clean(ad.mr04ReasonCode, 100),\n  mr04Reason: clean(ad.mr04Reason, 500),\n  matchedQueries: Array.isArray(ad.matchedQueries) ? ad.matchedQueries.slice(0, 12) : [],\n  matchedSeeds: Array.isArray(ad.matchedSeeds) ? ad.matchedSeeds.slice(0, 12) : [],\n})).filter(ad => ad.adArchiveId);\n\nif (!ads.length) {\n  throw new Error('MR05 nie znalazł żadnego poprawnego identyfikatora reklamy.');\n}\n\nreturn [{\n  json: {\n    projectId: String(body.projectId ?? body.project_id ?? 'default'),\n    filterVersion: 'mr05-second-pass-v2',\n    batch: {\n      index: Number(body.batch?.index ?? 1),\n      total: Number(body.batch?.total ?? 1),\n      size: ads.length,\n    },\n    projectContext: {\n      projectName: body.projectName ?? null,\n      projectBrief: body.projectBrief ?? body.brief ?? null,\n      queryPlan: body.queryPlan ?? null,\n    },\n    ads,\n  },\n}];"
+      },
+      "id": "8e633b5b-ff53-4753-b8c6-0c272b01744b",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Jesteś modułem MR05 SECOND-PASS RELEVANCE w systemie Demand Radar.\n\nOtrzymujesz reklamy, których MR04 nie potrafił jednoznacznie rozstrzygnąć (REVIEW / POTENCJALNE). Przeanalizuj je ponownie, korzystając z treści reklamy, kontekstu projektu, dopasowanych zapytań i seedów oraz powodu MR04.\n\nDECYZJE:\n- KEEP: istnieją konkretne przesłanki, że reklama należy do badanego rynku lub jest wartościowym, przyległym sygnałem popytu.\n- REJECT: istnieją konkretne przesłanki, że reklama jest poza zakresem, przypadkowym dopasowaniem słowa lub szumem.\n- REVIEW: używaj wyłącznie wtedy, gdy po drugiej analizie nadal faktycznie brakuje danych. Nie wybieraj REVIEW tylko z ostrożności.\n\nDOZWOLONE reasonCode:\n- KEEP: IN_SCOPE, ADJACENT_IN_SCOPE\n- REJECT: OUT_OF_SCOPE_TOPIC, ACCIDENTAL_KEYWORD_MATCH, NON_MARKET_NOISE\n- REVIEW: INSUFFICIENT_DATA, AMBIGUOUS\n\nKażdy adArchiveId z wejścia musi wystąpić dokładnie raz. Nie zmieniaj identyfikatorów. confidence to liczba całkowita 0-100. Powód ma krótko wskazać dowód rozstrzygający.\n\nKONTEKST PROJEKTU:\n{{ JSON.stringify($json.projectContext) }}\n\nPACZKA:\n{{ JSON.stringify($json.batch) }}\n\nREKLAMY Z DECYZJĄ MR04:\n{{ JSON.stringify($json.ads) }}\n\nZwróć wyłącznie obiekt zgodny ze schematem parsera, bez markdownu i komentarzy.",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "id": "4334c068-82ea-4b2c-8013-ad9f23feb560",
+      "name": "Classify Relevance",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        512,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": {
+          "maxOutputTokens": 12000
+        }
+      },
+      "id": "b7a5a2f4-6a25-4697-8915-bc2957f34bc3",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 10000,
+      "position": [
+        400,
+        544
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "wk9blF1eI7pbYHvE",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"decisions\"\n  ],\n  \"properties\": {\n    \"decisions\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\n          \"adArchiveId\",\n          \"decision\",\n          \"confidence\",\n          \"reasonCode\",\n          \"reason\"\n        ],\n        \"properties\": {\n          \"adArchiveId\": {\n            \"type\": \"string\",\n            \"minLength\": 1\n          },\n          \"decision\": {\n            \"type\": \"string\",\n            \"enum\": [\n              \"KEEP\",\n              \"REJECT\",\n              \"REVIEW\"\n            ]\n          },\n          \"confidence\": {\n            \"type\": \"integer\",\n            \"minimum\": 0,\n            \"maximum\": 100\n          },\n          \"reasonCode\": {\n            \"type\": \"string\",\n            \"enum\": [\n              \"IN_SCOPE\",\n              \"ADJACENT_IN_SCOPE\",\n              \"OUT_OF_SCOPE_TOPIC\",\n              \"ACCIDENTAL_KEYWORD_MATCH\",\n              \"NON_MARKET_NOISE\",\n              \"INSUFFICIENT_DATA\",\n              \"AMBIGUOUS\"\n            ]\n          },\n          \"reason\": {\n            \"type\": \"string\",\n            \"minLength\": 1,\n            \"maxLength\": 400\n          }\n        }\n      }\n    }\n  }\n}"
+      },
+      "id": "b974f87b-d085-4e42-81ed-f9c8d24a311a",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        672,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Normalize Input').first().json;\nconst output = $json.output ?? $json;\nlet parsed = output;\n\nif (typeof parsed === 'string') {\n  const cleaned = parsed.trim()\n    .replace(/^```(?:json)?\\s*/i, '')\n    .replace(/\\s*```$/, '');\n  try {\n    parsed = JSON.parse(cleaned);\n  } catch {\n    parsed = {};\n  }\n}\n\nconst expectedIds = source.ads.map(ad => String(ad.adArchiveId));\nconst expected = new Set(expectedIds);\nconst allowedDecision = new Set(['KEEP', 'REJECT', 'REVIEW']);\nconst reasonByDecision = {\n  KEEP: new Set(['IN_SCOPE', 'ADJACENT_IN_SCOPE']),\n  REJECT: new Set(['OUT_OF_SCOPE_TOPIC', 'ACCIDENTAL_KEYWORD_MATCH', 'NON_MARKET_NOISE']),\n  REVIEW: new Set(['INSUFFICIENT_DATA', 'AMBIGUOUS']),\n};\nconst byId = new Map();\n\nfor (const item of Array.isArray(parsed?.decisions) ? parsed.decisions : []) {\n  const id = String(item?.adArchiveId ?? '').trim();\n  if (!expected.has(id) || byId.has(id)) continue;\n\n  let decision = String(item?.decision ?? 'REVIEW').toUpperCase();\n  if (!allowedDecision.has(decision)) decision = 'REVIEW';\n\n  let reasonCode = String(item?.reasonCode ?? 'AMBIGUOUS').toUpperCase();\n  if (!reasonByDecision[decision].has(reasonCode)) {\n    decision = 'REVIEW';\n    reasonCode = 'AMBIGUOUS';\n  }\n\n  let confidence = Number(item?.confidence);\n  if (!Number.isFinite(confidence)) confidence = 0;\n  confidence = Math.max(0, Math.min(100, Math.round(confidence)));\n\n  byId.set(id, {\n    adArchiveId: id,\n    decision,\n    confidence,\n    reasonCode,\n    reason: cleanReason(item?.reason),\n  });\n}\n\nfunction cleanReason(value) {\n  return String(value ?? '')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 400) || 'Brak kompletnej decyzji modelu; wymagana weryfikacja.';\n}\n\nconst missingIds = [];\nfor (const id of expectedIds) {\n  if (!byId.has(id)) {\n    missingIds.push(id);\n    byId.set(id, {\n      adArchiveId: id,\n      decision: 'REVIEW',\n      confidence: 0,\n      reasonCode: 'INSUFFICIENT_DATA',\n      reason: 'Brak kompletnej decyzji modelu; wymagana weryfikacja.',\n    });\n  }\n}\n\nconst decisions = expectedIds.map(id => byId.get(id));\n\nreturn [{\n  json: {\n    ok: true,\n    degraded: missingIds.length > 0,\n    projectId: source.projectId,\n    filterVersion: source.filterVersion,\n    processedAt: new Date().toISOString(),\n    batch: source.batch,\n    missingIds,\n    summary: {\n      total: decisions.length,\n      keep: decisions.filter(item => item.decision === 'KEEP').length,\n      reject: decisions.filter(item => item.decision === 'REJECT').length,\n      review: decisions.filter(item => item.decision === 'REVIEW').length,\n    },\n    decisions,\n  },\n}];"
+      },
+      "id": "ed1af2d6-3047-4277-a8ef-15ecaee6e9ea",
+      "name": "Validate & Finalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "4f3a3486-f94f-4278-a9ca-6b887aa5f182",
+      "name": "Return Decisions",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1040,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Rozstrzyganie niejednoznacznych (MR05) · maks. 14 RPM\\nAplikacja wysyła wyłącznie nierozstrzygnięte POTENCJALNE. Wielkość paczki wybiera się w Workbenchu (1–200 reklam), a tryb TEST wysyła dokładnie jedną paczkę. Workflow wykonuje 1 wywołanie modelu na webhook. Węzeł modelu ponawia błędy fetch/429/5xx maksymalnie 3 razy, co 10 sekund. Nie dodawaj Split In Batches — pacing, STOP/WZNÓW i postęp obsługuje backend.",
+        "height": 180,
+        "width": 360,
+        "color": 5
+      },
+      "id": "ba2688f5-1775-4e8f-aba6-c3f86c510b0b",
+      "name": "MR05 · 14 RPM · retry 10 s",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "MR05 Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Classify Relevance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify Relevance",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classify Relevance",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Relevance": {
+      "main": [
+        [
+          {
+            "node": "Validate & Finalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Finalize": {
+      "main": [
+        [
+          {
+            "node": "Return Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "480e59a3657b90bb605dbab4baa257d40f90abc7679489928bf47ac96e8df2d7"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

@@ -509,6 +509,56 @@ const MIGRATIONS = [
         ON offer_family_ads(project_id, offer_family_id, sort_order);
     `,
   },
+  {
+    id: '0007_read_performance_indexes',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_meta_ad_query_matches_run_ad
+        ON meta_ad_query_matches(research_run_id, meta_ad_id);
+
+      CREATE INDEX IF NOT EXISTS idx_project_ad_relevance_project_manual
+        ON project_ad_relevance(project_id, manual_override);
+
+      CREATE INDEX IF NOT EXISTS idx_project_ad_relevance_project_meta
+        ON project_ad_relevance(project_id, meta_ad_id);
+
+      CREATE INDEX IF NOT EXISTS idx_meta_ads_updated_meta
+        ON meta_ads(updated_at DESC, meta_ad_id);
+
+      CREATE INDEX IF NOT EXISTS idx_meta_ads_lifecycle_updated
+        ON meta_ads(longevity_category, updated_at DESC, meta_ad_id);
+
+      CREATE INDEX IF NOT EXISTS idx_meta_ads_eu_reach_updated
+        ON meta_ads(eu_total_reach DESC, updated_at DESC, meta_ad_id);
+    `,
+  },
+  {
+    id: '0008_mr05_and_relevance_progress',
+    sql: `
+      ALTER TABLE project_ad_relevance ADD COLUMN last_classifier TEXT NOT NULL DEFAULT 'MR04'
+        CHECK (last_classifier IN ('MR04', 'MR05'));
+      ALTER TABLE project_ad_relevance ADD COLUMN mr05_decision TEXT NULL
+        CHECK (mr05_decision IN ('KEEP', 'REVIEW', 'REJECT'));
+      ALTER TABLE project_ad_relevance ADD COLUMN mr05_confidence INTEGER NULL;
+      ALTER TABLE project_ad_relevance ADD COLUMN mr05_reason_code TEXT NULL;
+      ALTER TABLE project_ad_relevance ADD COLUMN mr05_reason TEXT NULL;
+      ALTER TABLE project_ad_relevance ADD COLUMN mr05_filter_version TEXT NULL;
+      ALTER TABLE project_ad_relevance ADD COLUMN mr05_checked_at TEXT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_project_ad_relevance_mr05_pending
+        ON project_ad_relevance(project_id, relevance_status, mr05_checked_at, manual_override);
+
+      CREATE TABLE IF NOT EXISTS relevance_job_progress (
+        project_id TEXT NOT NULL,
+        stage TEXT NOT NULL CHECK (stage IN ('MR04', 'MR05')),
+        progress_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, stage),
+        FOREIGN KEY(project_id)
+          REFERENCES projects(id)
+          ON DELETE CASCADE
+      );
+    `,
+  },
 ];
 
 function runMigrations(db) {

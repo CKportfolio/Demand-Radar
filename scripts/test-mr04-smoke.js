@@ -10,10 +10,17 @@ const {
   applyMr04Decisions,
   setProjectAdManualRelevance,
   getProjectRelevancePendingCount,
+  getProjectMr05PendingCount,
   getProjectAdsForRelevanceReview,
+  getProjectAdsForMr05Review,
+  applyMr05Decisions,
   getResearchRunAds,
+  countResearchRunAds,
+  getProjectAdDetails,
   getResearchRunRelevanceSummary,
   getProjectAdsEligibleForDetails,
+  getProjectRelevanceResetCount,
+  restoreProjectRelevanceBatch,
 } = require('../src/db/metaResearchRepository');
 
 function nowIso() {
@@ -218,6 +225,31 @@ function main() {
   assert.equal(summaryAfterMr04.reject, 1);
   assert.equal(summaryAfterMr04.potential, 1);
 
+  assert.equal(getProjectMr05PendingCount(db, projectId), 1, 'MR05 powinien zobaczyc nierozstrzygniete POTENCJALNE');
+  const mr05Candidates = getProjectAdsForMr05Review(db, projectId, { includeResolved: false });
+  assert.equal(mr05Candidates.length, 1, 'MR05 powinien pobrac tylko nierozstrzygniete reklamy');
+  assert.equal(mr05Candidates[0].mr04Decision, 'REVIEW');
+
+  const appliedMr05 = applyMr05Decisions(db, {
+    projectId,
+    filterVersion: 'mr05-test-v1',
+    decisions: [
+      { adArchiveId: 'ad-amb-1', decision: 'KEEP', confidence: 84, reasonCode: 'ADJACENT_IN_SCOPE', reason: 'Drugi przebieg znalazl sygnal rynku' },
+    ],
+  });
+  assert.equal(appliedMr05.keep, 1, 'MR05 powinien rozstrzygnac reklame jako KEEP');
+  assert.equal(getProjectMr05PendingCount(db, projectId), 0, 'Rozstrzygnieta reklama nie moze wracac do MR05 pending');
+
+  const mr05Row = db.prepare(`
+    SELECT relevance_status, last_classifier, mr05_decision, mr05_filter_version
+    FROM project_ad_relevance
+    WHERE project_id = ? AND ad_archive_id = ?
+  `).get(projectId, 'ad-amb-1');
+  assert.equal(mr05Row.relevance_status, 'KEEP');
+  assert.equal(mr05Row.last_classifier, 'MR05');
+  assert.equal(mr05Row.mr05_decision, 'KEEP');
+  assert.equal(mr05Row.mr05_filter_version, 'mr05-test-v1');
+
   setProjectAdManualRelevance(db, {
     projectId,
     adArchiveId: 'ad-amb-1',
@@ -239,6 +271,18 @@ function main() {
   assert.ok(usefulIds.has('ad-psych-1'));
   assert.ok(usefulIds.has('ad-amb-1'));
   assert.ok(!usefulIds.has('ad-stock-1'));
+
+  assert.equal(countResearchRunAds(db, firstRun.run.id, { relevanceScope: 'USEFUL' }), 2, 'H: count musi uwzgledniac filtry');
+  const usefulPage1 = getResearchRunAds(db, firstRun.run.id, { relevanceScope: 'USEFUL' }, { limit: 1, offset: 0 });
+  const usefulPage2 = getResearchRunAds(db, firstRun.run.id, { relevanceScope: 'USEFUL' }, { limit: 1, offset: 1 });
+  assert.equal(usefulPage1.length, 1, 'H: pierwsza strona ma zawierac jeden rekord');
+  assert.equal(usefulPage2.length, 1, 'H: druga strona ma zawierac jeden rekord');
+  assert.notEqual(usefulPage1[0].adArchiveId, usefulPage2[0].adArchiveId, 'H: strony nie moga sie dublowac');
+  assert.equal(Object.hasOwn(usefulPage1[0], 'rawJson'), false, 'I: lista nie powinna pobierac ciezkiego rawJson');
+
+  const adDetails = getProjectAdDetails(db, projectId, 'ad-psych-1');
+  assert.equal(adDetails.adArchiveId, 'ad-psych-1', 'I: szczegoly maja byc pobierane osobnym odczytem');
+  assert.equal(typeof adDetails.rawJson, 'object', 'I: szczegoly powinny zawierac rawJson');
 
   createRunWithAds(db, projectId, queryPlanId, 'psychoterapia online', [adStock]);
 
@@ -273,13 +317,30 @@ function main() {
   });
   assert.equal(detailsEligible.length, 0, 'G: KEEP/POTENTIAL z FETCHED nie powinny byc pobierane ponownie');
 
-  console.log('SMOKE MR04 A-G: PASS');
+  const resetBefore = getProjectRelevanceResetCount(db, projectId);
+  assert.equal(resetBefore, 3, 'J: reset powinien objac wszystkie decyzje MR04 i manual override');
+  assert.equal(restoreProjectRelevanceBatch(db, projectId, 2), 2, 'J: pierwsza paczka resetu powinna wyczyscic 2 rekordy');
+  assert.equal(restoreProjectRelevanceBatch(db, projectId, 2), 1, 'J: druga paczka resetu powinna wyczyscic pozostaly rekord');
+  assert.equal(getProjectRelevanceResetCount(db, projectId), 0, 'J: po resecie nie moze zostac stan MR04');
+
+  const resetRows = db.prepare(`
+    SELECT relevance_status, manual_override, last_classifier,
+           mr04_decision, mr04_confidence, mr04_reason_code, mr04_reason, mr04_filter_version, mr04_checked_at,
+           mr05_decision, mr05_confidence, mr05_reason_code, mr05_reason, mr05_filter_version, mr05_checked_at
+    FROM project_ad_relevance
+    WHERE project_id = ?
+  `).all(projectId);
+  assert.ok(resetRows.every(row => row.relevance_status === 'UNREVIEWED' && row.manual_override === 0), 'K: statusy musza wrocic do UNREVIEWED');
+  assert.ok(resetRows.every(row => row.mr04_decision == null && row.mr04_confidence == null && row.mr04_reason == null), 'K: pola decyzji MR04 musza byc puste');
+  assert.ok(resetRows.every(row => row.last_classifier === 'MR04' && row.mr05_decision == null && row.mr05_checked_at == null), 'K: reset musi usunac rowniez caly slad MR05');
+
+  console.log('SMOKE MR04 A-K: PASS');
 }
 
 try {
   main();
 } catch (error) {
-  console.error('SMOKE MR04 A-G: FAIL');
+  console.error('SMOKE MR04 A-K: FAIL');
   console.error(error.stack || error.message);
   process.exitCode = 1;
 }

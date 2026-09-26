@@ -1,0 +1,24 @@
+{
+  "requestId": "33333333-3333-4333-8333-333333333333",
+  "projectId": "22222222-2222-4222-8222-222222222222",
+  "currentPlan": {},
+  "userInstruction": "Nie ograniczaj sie do rynku specjalistow. Poszukaj rowniez produktow kupowanych bezposrednio przez klientow indywidualnych.",
+  "recentConversation": [
+    {
+      "role": "user",
+      "content": "Zalezy mi na szerokim starcie discovery."
+    },
+    {
+      "role": "assistant",
+      "content": "Plan startowy przygotowany: szerokie seed queries i kilka kierunkow segmentacji."
+    }
+  ],
+  "availableDiscoveryCapabilities": [
+    {
+      "source": "META_AD_LIBRARY",
+      "modes": [
+        "KEYWORD_SEARCH"
+      ]
+    }
+  ]
+}

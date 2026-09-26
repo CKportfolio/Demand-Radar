@@ -1,0 +1,14 @@
+# Secrets — never commit real values
+.env
+
+# Local application data (SQLite file, Playwright profile) — created once the app exists
+.data/
+
+# Node.js (for when the app is scaffolded)
+node_modules/
+dist/
+build/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

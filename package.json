@@ -1,25 +1,21 @@
 {
-  "name": "demand-radar-meta-ads-research",
-  "private": true,
-  "scripts": {
-    "start": "node server.js",
-    "test": "node --test tests/*.test.js",
-    "test:mr04-smoke": "node scripts/test-mr04-smoke.js",
-    "test:offer-family-smoke": "node scripts/test-offer-family-smoke.js",
-    "test:smoke": "npm run test:mr04-smoke && npm run test:offer-family-smoke",
-    "validate:schema": "node scripts/validate-discovery-plan.mjs tests/fixtures/discovery-plan.valid.json",
-    "check:syntax": "node --check server.js && node --check src/meta/lifecycleClassifier.js && node --check src/meta/offerFamilyClassifier.js && node --check src/meta/mr04RelevanceFilter.js && node --check src/meta/metaAdsHarvester.js",
-    "ci": "npm run check:syntax && npm test && npm run test:smoke && npm run validate:schema",
-    "rebuild:offer-families": "node scripts/rebuild-offer-families.js"
-  },
-  "devDependencies": {
-    "ajv": "^8.20.0"
-  },
-  "dependencies": {
-    "better-sqlite3": "^13.0.3"
-  },
-  "description": "Research popytu na produkty cyfrowe na podstawie sygnałów z Meta Ads Library.",
-  "engines": {
-    "node": ">=22 <25"
-  }
+	"name": "demand-radar-dev-utils",
+	"private": true,
+	"scripts": {
+		"start": "node server.js",
+		"test": "node --test tests/*.test.js",
+		"test:mr04-smoke": "node scripts/test-mr04-smoke.js",
+		"test:offer-family-smoke": "node scripts/test-offer-family-smoke.js",
+		"test:smoke": "npm run test:mr04-smoke && npm run test:offer-family-smoke",
+		"validate:schema": "node scripts/validate-discovery-plan.mjs tests/fixtures/discovery-plan.valid.json",
+		"check:syntax": "node --check server.js && node --check src/db/metaResearchRepository.js && node --check src/db/relevanceJobRepository.js && node --check src/meta/lifecycleClassifier.js && node --check src/meta/offerFamilyClassifier.js && node --check src/meta/mr04RelevanceFilter.js && node --check src/meta/metaAdsHarvester.js && node --check public/js/core.js && node --check public/js/tabs/workbench.js && node --check public/js/tabs/saved-projects.js && node --check public/js/tabs/query-plan.js && node --check public/js/tabs/results.js && node --check public/js/timeline-modal.js && node --check public/js/system-status.js && node --check public/js/init.js",
+		"ci": "npm run check:syntax && npm test && npm run test:smoke && npm run validate:schema",
+		"rebuild:offer-families": "node scripts/rebuild-offer-families.js"
+	},
+	"devDependencies": {
+		"ajv": "^8.20.0"
+	},
+	"dependencies": {
+		"better-sqlite3": "^13.0.3"
+	}
 }

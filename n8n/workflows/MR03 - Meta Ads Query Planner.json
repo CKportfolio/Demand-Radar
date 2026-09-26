@@ -15,7 +15,8 @@
         0
       ],
       "id": "7adbb46d-5637-43ee-bed9-f7d7e757f2a2",
-      "name": "MR03 Webhook"
+      "name": "MR03 Webhook",
+      "webhookId": "a7a1b1bd-6423-4fa4-98fd-5ef922a1e301"
     },
     {
       "parameters": {
@@ -64,7 +65,13 @@
         240
       ],
       "id": "ee1fab6f-466a-421a-a6bb-b0465ac79195",
-      "name": "OpenAI Chat Model"
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "PpDbGH7SR9P5BeTG",
+          "name": "RADAR OPENAI"
+        }
+      }
     },
     {
       "parameters": {
@@ -110,6 +117,7 @@
       "name": "Return Query Plan"
     }
   ],
+  "pinData": {},
   "connections": {
     "MR03 Webhook": {
       "main": [
@@ -178,11 +186,18 @@
       ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "nodeGroups": []
+  "versionId": "7661a602-e592-44b3-a8cc-f673d61f7c5b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "480e59a3657b90bb605dbab4baa257d40f90abc7679489928bf47ac96e8df2d7"
+  },
+  "nodeGroups": [],
+  "id": "zmAKTBRF8uPetEug",
+  "tags": []
 }

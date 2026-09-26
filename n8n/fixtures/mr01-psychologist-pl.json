@@ -1,0 +1,28 @@
+{
+  "requestId": "11111111-1111-4111-8111-111111111111",
+  "projectId": "22222222-2222-4222-8222-222222222222",
+  "brief": {
+    "competencies": "Jestem psychologiem i psychotraumatologiem. Potrafie projektowac programy edukacyjne i materialy rozwojowe oparte na wiedzy psychologicznej.",
+    "qualifications": "Psycholog, psychotraumatolog; praca psychoedukacyjna i szkoleniowa.",
+    "availableProductFormats": [
+      "onlineCourse",
+      "recordedTraining",
+      "webinar",
+      "educationalProgram"
+    ],
+    "market": {
+      "country": "PL",
+      "language": "pl"
+    },
+    "constraints": "Rynek polski, jezyk polski, bez obietnic efektow medycznych i bez twierdzen o potwierdzonej skutecznosci sprzedazowej.",
+    "exclusions": "Nie rozpatruj produktow wymagajacych formalnej akredytacji zawodowej jako warunku zakupu lub uczestnictwa."
+  },
+  "availableDiscoveryCapabilities": [
+    {
+      "source": "META_AD_LIBRARY",
+      "modes": [
+        "KEYWORD_SEARCH"
+      ]
+    }
+  ]
+}

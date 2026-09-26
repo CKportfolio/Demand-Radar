@@ -164,17 +164,18 @@ function normalizeDecisionItems(rawItems) {
   return { normalized, invalid };
 }
 
-function extractFilterVersion(payload) {
+function extractFilterVersion(payload, stage = 'MR04') {
   if (!payload || typeof payload !== 'object') {
-    return 'mr04';
+    return String(stage).toLowerCase();
   }
 
   const candidate = payload.filterVersion || payload.modelVersion || payload.version || payload.workflowVersion;
-  if (!candidate) return 'mr04';
+  if (!candidate) return String(stage).toLowerCase();
   return String(candidate);
 }
 
-async function runMr04Webhook({ webhookUrl, timeoutMs, payload }) {
+async function runRelevanceWebhook({ stage = 'MR04', webhookUrl, timeoutMs, payload }) {
+  const normalizedStage = String(stage || 'MR04').trim().toUpperCase();
   const started = Date.now();
 
   let response;
@@ -190,10 +191,10 @@ async function runMr04Webhook({ webhookUrl, timeoutMs, payload }) {
   } catch (error) {
     const wrapped = new Error(
       error.name === 'TimeoutError'
-        ? `MR04 request timed out after ${Math.floor(timeoutMs / 1000)} seconds`
+        ? `${normalizedStage} request timed out after ${Math.floor(timeoutMs / 1000)} seconds`
         : error.message,
     );
-    wrapped.code = 'MR04_REQUEST_FAILED';
+    wrapped.code = `${normalizedStage}_REQUEST_FAILED`;
     throw wrapped;
   }
 
@@ -204,23 +205,23 @@ async function runMr04Webhook({ webhookUrl, timeoutMs, payload }) {
   try {
     parsed = rawText ? JSON.parse(rawText) : null;
   } catch {
-    const error = new Error('MR04 response is not valid JSON');
-    error.code = 'MR04_INVALID_JSON';
+    const error = new Error(`${normalizedStage} response is not valid JSON`);
+    error.code = `${normalizedStage}_INVALID_JSON`;
     error.upstreamStatus = response.status;
     throw error;
   }
 
-  if (parsed && typeof parsed === 'object' && parsed.errorMessage && parsed.n8nDetails) {
+  if (parsed && typeof parsed === 'object' && parsed.errorMessage) {
     const error = new Error(String(parsed.errorMessage));
-    error.code = 'MR04_WORKFLOW_ERROR';
+    error.code = `${normalizedStage}_WORKFLOW_ERROR`;
     error.upstreamStatus = response.status;
     error.data = parsed;
     throw error;
   }
 
   if (!response.ok) {
-    const error = new Error('MR04 webhook returned non-2xx response');
-    error.code = 'MR04_NON_2XX';
+    const error = new Error(`${normalizedStage} webhook returned non-2xx response`);
+    error.code = `${normalizedStage}_NON_2XX`;
     error.upstreamStatus = response.status;
     error.data = parsed;
     throw error;
@@ -230,8 +231,8 @@ async function runMr04Webhook({ webhookUrl, timeoutMs, payload }) {
   const { normalized, invalid } = normalizeDecisionItems(rawItems);
 
   if (!normalized.length) {
-    const error = new Error('MR04 response does not contain valid decisions');
-    error.code = 'MR04_INVALID_SHAPE';
+    const error = new Error(`${normalizedStage} response does not contain valid decisions`);
+    error.code = `${normalizedStage}_INVALID_SHAPE`;
     error.upstreamStatus = response.status;
     error.data = parsed;
     throw error;
@@ -240,13 +241,18 @@ async function runMr04Webhook({ webhookUrl, timeoutMs, payload }) {
   return {
     durationMs,
     upstreamStatus: response.status,
-    filterVersion: extractFilterVersion(parsed),
+    filterVersion: extractFilterVersion(parsed, normalizedStage),
     decisions: normalized,
     invalidDecisions: invalid,
     raw: parsed,
   };
 }
 
+function runMr04Webhook(options) {
+  return runRelevanceWebhook({ ...options, stage: 'MR04' });
+}
+
 module.exports = {
+  runRelevanceWebhook,
   runMr04Webhook,
 };

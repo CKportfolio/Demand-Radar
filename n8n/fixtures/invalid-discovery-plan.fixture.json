@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.1",
+  "capabilityUnderstanding": "test",
+  "marketBreadth": {
+    "country": "PL",
+    "language": "pl",
+    "notes": ""
+  },
+  "seedQueries": [],
+  "candidateProductTypes": [],
+  "initialTaxonomy": [],
+  "discoveryStrategies": [],
+  "queryExpansionPolicy": {
+    "whenToBroaden": "",
+    "whenToNarrow": "",
+    "maxExpansionRounds": -1
+  },
+  "openUnknowns": [],
+  "constraints": [],
+  "discoveryLimits": {
+    "maxQueriesPerRun": 0,
+    "maxAdsPerQuery": 0,
+    "maxScrollsPerQuery": 0,
+    "stopAfterScrollsWithoutNewAds": 0,
+    "maxRuntimeMinutes": 0
+  },
+  "saturationCriteria": [],
+  "changeSummary": "",
+  "warnings": []
+}

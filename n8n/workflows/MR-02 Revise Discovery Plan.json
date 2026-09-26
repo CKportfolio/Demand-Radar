@@ -15,7 +15,8 @@
       "position": [
         -1088,
         272
-      ]
+      ],
+      "webhookId": "d0a58a20-dc10-43ed-95f4-5aea4daa871d"
     },
     {
       "parameters": {
@@ -90,7 +91,13 @@
       "position": [
         -272,
         176
-      ]
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "PpDbGH7SR9P5BeTG",
+          "name": "RADAR OPENAI"
+        }
+      }
     },
     {
       "parameters": {
@@ -148,6 +155,7 @@
       ]
     }
   ],
+  "pinData": {},
   "connections": {
     "Webhook MR-02": {
       "main": [
@@ -234,10 +242,17 @@
       ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "nodeGroups": []
+  "versionId": "3c7cff38-d380-4455-86b3-faf0a04ef597",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "480e59a3657b90bb605dbab4baa257d40f90abc7679489928bf47ac96e8df2d7"
+  },
+  "nodeGroups": [],
+  "id": "MR02ReviseDiscoveryPlan",
+  "tags": []
 }

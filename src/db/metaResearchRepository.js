@@ -19,6 +19,7 @@ const LONGEVITY_ORDER = {
 
 const RELEVANCE_STATUSES = new Set(['UNREVIEWED', 'KEEP', 'POTENTIAL', 'REJECT']);
 const MR04_DECISIONS = new Set(['KEEP', 'REVIEW', 'REJECT']);
+const MR05_DECISIONS = new Set(['KEEP', 'REVIEW', 'REJECT']);
 const DETAILS_STATUSES = new Set(['NOT_FETCHED', 'FETCHING', 'FETCHED', 'FAILED']);
 const LIFECYCLE_VALUES = ['BALON_PROBNY', 'TEST_W_TOKU', 'ROKUJACA', 'MOCNA', 'EVERGREEN'];
 const LIFECYCLE_SET = new Set(LIFECYCLE_VALUES);
@@ -981,16 +982,43 @@ function getProjectRelevancePendingCount(db, projectId) {
   return row?.count_pending || 0;
 }
 
-function getProjectAdsForRelevanceReview(db, projectId, {
+function getProjectMr05PendingCount(db, projectId) {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count_pending
+    FROM project_ad_relevance
+    WHERE project_id = ?
+      AND manual_override = 0
+      AND relevance_status = 'POTENTIAL'
+      AND mr05_checked_at IS NULL
+  `).get(projectId);
+
+  return row?.count_pending || 0;
+}
+
+function getProjectAdsForRelevanceStage(db, projectId, {
+  stage = 'MR04',
   includeResolved = false,
   limit = 1500,
 } = {}) {
+  const normalizedStage = String(stage || 'MR04').trim().toUpperCase();
+  if (normalizedStage !== 'MR04' && normalizedStage !== 'MR05') {
+    throw new Error('Invalid relevance stage');
+  }
+
+  const stageFilter = normalizedStage === 'MR05'
+    ? `(par.manual_override = 0
+        AND par.relevance_status = 'POTENTIAL'
+        AND (? = 1 OR par.mr05_checked_at IS NULL))`
+    : `(? = 1
+        OR (par.manual_override = 0 AND par.relevance_status = 'UNREVIEWED'))`;
+
   const rows = db.prepare(`
     SELECT
       par.meta_ad_id,
       par.ad_archive_id,
       par.relevance_status,
       par.relevance_source,
+      par.last_classifier,
       par.manual_override,
       par.mr04_decision,
       par.mr04_confidence,
@@ -998,6 +1026,12 @@ function getProjectAdsForRelevanceReview(db, projectId, {
       par.mr04_reason,
       par.mr04_filter_version,
       par.mr04_checked_at,
+      par.mr05_decision,
+      par.mr05_confidence,
+      par.mr05_reason_code,
+      par.mr05_reason,
+      par.mr05_filter_version,
+      par.mr05_checked_at,
       par.details_status,
       par.details_fetched_at,
       par.details_provider,
@@ -1033,10 +1067,7 @@ function getProjectAdsForRelevanceReview(db, projectId, {
     FROM project_ad_relevance par
     JOIN meta_ads ma ON ma.meta_ad_id = par.meta_ad_id
     WHERE par.project_id = ?
-      AND (
-        ? = 1
-        OR (par.manual_override = 0 AND par.relevance_status = 'UNREVIEWED')
-      )
+      AND ${stageFilter}
     ORDER BY COALESCE(ma.updated_at, ma.last_seen_at, ma.first_seen_at) DESC
     LIMIT ?
   `).all(projectId, includeResolved ? 1 : 0, Math.max(1, Number(limit) || 1500));
@@ -1046,6 +1077,7 @@ function getProjectAdsForRelevanceReview(db, projectId, {
     adArchiveId: row.ad_archive_id,
     relevanceStatus: normalizeRelevanceStatus(row.relevance_status),
     relevanceSource: row.relevance_source || 'MR04',
+    lastClassifier: row.last_classifier || 'MR04',
     manualOverride: row.manual_override === 1,
     mr04Decision: row.mr04_decision || null,
     mr04Confidence: Number.isFinite(Number(row.mr04_confidence)) ? Number(row.mr04_confidence) : null,
@@ -1053,6 +1085,12 @@ function getProjectAdsForRelevanceReview(db, projectId, {
     mr04Reason: row.mr04_reason || null,
     mr04FilterVersion: row.mr04_filter_version || null,
     mr04CheckedAt: row.mr04_checked_at || null,
+    mr05Decision: row.mr05_decision || null,
+    mr05Confidence: Number.isFinite(Number(row.mr05_confidence)) ? Number(row.mr05_confidence) : null,
+    mr05ReasonCode: row.mr05_reason_code || null,
+    mr05Reason: row.mr05_reason || null,
+    mr05FilterVersion: row.mr05_filter_version || null,
+    mr05CheckedAt: row.mr05_checked_at || null,
     detailsStatus: normalizeDetailsStatus(row.details_status),
     detailsFetchedAt: row.details_fetched_at || null,
     detailsProvider: row.details_provider || null,
@@ -1078,6 +1116,14 @@ function getProjectAdsForRelevanceReview(db, projectId, {
   }));
 }
 
+function getProjectAdsForRelevanceReview(db, projectId, options = {}) {
+  return getProjectAdsForRelevanceStage(db, projectId, { ...options, stage: 'MR04' });
+}
+
+function getProjectAdsForMr05Review(db, projectId, options = {}) {
+  return getProjectAdsForRelevanceStage(db, projectId, { ...options, stage: 'MR05' });
+}
+
 function applyMr04Decisions(db, {
   projectId,
   decisions,
@@ -1094,12 +1140,19 @@ function applyMr04Decisions(db, {
     UPDATE project_ad_relevance
     SET relevance_status = ?,
         relevance_source = 'MR04',
+        last_classifier = 'MR04',
         mr04_decision = ?,
         mr04_confidence = ?,
         mr04_reason_code = ?,
         mr04_reason = ?,
         mr04_filter_version = ?,
         mr04_checked_at = ?,
+        mr05_decision = NULL,
+        mr05_confidence = NULL,
+        mr05_reason_code = NULL,
+        mr05_reason = NULL,
+        mr05_filter_version = NULL,
+        mr05_checked_at = NULL,
         updated_at = ?
     WHERE id = ?
   `);
@@ -1166,6 +1219,98 @@ function applyMr04Decisions(db, {
   return stats;
 }
 
+function applyMr05Decisions(db, {
+  projectId,
+  decisions,
+  filterVersion = 'mr05',
+}) {
+  const selectRow = db.prepare(`
+    SELECT *
+    FROM project_ad_relevance
+    WHERE project_id = ? AND ad_archive_id = ?
+    LIMIT 1
+  `);
+
+  const updateRow = db.prepare(`
+    UPDATE project_ad_relevance
+    SET relevance_status = ?,
+        relevance_source = 'MR04',
+        last_classifier = 'MR05',
+        mr05_decision = ?,
+        mr05_confidence = ?,
+        mr05_reason_code = ?,
+        mr05_reason = ?,
+        mr05_filter_version = ?,
+        mr05_checked_at = ?,
+        updated_at = ?
+    WHERE id = ?
+  `);
+
+  const stats = {
+    processed: 0,
+    keep: 0,
+    potential: 0,
+    reject: 0,
+    skippedManual: 0,
+    skippedNotPotential: 0,
+    missing: 0,
+    invalid: 0,
+  };
+
+  const tx = db.transaction(() => {
+    for (const decisionItem of decisions || []) {
+      const adArchiveId = String(decisionItem.adArchiveId || '').trim();
+      const decision = String(decisionItem.decision || '').trim().toUpperCase();
+
+      if (!adArchiveId || !MR05_DECISIONS.has(decision)) {
+        stats.invalid += 1;
+        continue;
+      }
+
+      const row = selectRow.get(projectId, adArchiveId);
+      if (!row) {
+        stats.missing += 1;
+        continue;
+      }
+      if (row.manual_override === 1) {
+        stats.skippedManual += 1;
+        continue;
+      }
+      if (row.relevance_status !== 'POTENTIAL') {
+        stats.skippedNotPotential += 1;
+        continue;
+      }
+
+      const mappedStatus = mapMr04DecisionToStatus(decision);
+      const now = new Date().toISOString();
+      const confidenceRaw = Number(decisionItem.confidence);
+      const confidence = Number.isFinite(confidenceRaw)
+        ? Math.max(0, Math.min(100, Math.round(confidenceRaw)))
+        : null;
+
+      updateRow.run(
+        mappedStatus,
+        decision,
+        confidence,
+        decisionItem.reasonCode ? String(decisionItem.reasonCode) : null,
+        decisionItem.reason ? String(decisionItem.reason) : null,
+        String(filterVersion || 'mr05'),
+        now,
+        now,
+        row.id,
+      );
+
+      stats.processed += 1;
+      if (mappedStatus === 'KEEP') stats.keep += 1;
+      if (mappedStatus === 'POTENTIAL') stats.potential += 1;
+      if (mappedStatus === 'REJECT') stats.reject += 1;
+    }
+  });
+
+  tx();
+  return stats;
+}
+
 function getProjectAdRelevanceRow(db, projectId, adArchiveId) {
   return db.prepare(`
     SELECT *
@@ -1185,6 +1330,7 @@ function mapProjectAdRelevanceRow(row) {
     adArchiveId: row.ad_archive_id,
     relevanceStatus: normalizeRelevanceStatus(row.relevance_status),
     relevanceSource: row.relevance_source || 'MR04',
+    lastClassifier: row.last_classifier || 'MR04',
     manualOverride: row.manual_override === 1,
     manualOverrideStatus: row.manual_override_status || null,
     manualOverrideAt: row.manual_override_at || null,
@@ -1194,6 +1340,12 @@ function mapProjectAdRelevanceRow(row) {
     mr04Reason: row.mr04_reason || null,
     mr04FilterVersion: row.mr04_filter_version || null,
     mr04CheckedAt: row.mr04_checked_at || null,
+    mr05Decision: row.mr05_decision || null,
+    mr05Confidence: Number.isFinite(Number(row.mr05_confidence)) ? Number(row.mr05_confidence) : null,
+    mr05ReasonCode: row.mr05_reason_code || null,
+    mr05Reason: row.mr05_reason || null,
+    mr05FilterVersion: row.mr05_filter_version || null,
+    mr05CheckedAt: row.mr05_checked_at || null,
     detailsStatus: normalizeDetailsStatus(row.details_status),
     detailsFetchedAt: row.details_fetched_at || null,
     detailsProvider: row.details_provider || null,
@@ -1308,13 +1460,17 @@ function restoreProjectAdRelevanceToMr04(db, {
     throw error;
   }
 
-  const mappedStatus = mapMr04DecisionToStatus(existing.mr04_decision);
+  const hasMr05Decision = Boolean(existing.mr05_checked_at && existing.mr05_decision);
+  const mappedStatus = mapMr04DecisionToStatus(
+    hasMr05Decision ? existing.mr05_decision : existing.mr04_decision,
+  );
   const now = new Date().toISOString();
 
   db.prepare(`
     UPDATE project_ad_relevance
     SET relevance_status = ?,
         relevance_source = 'MR04',
+        last_classifier = ?,
         manual_override = 0,
         manual_override_status = NULL,
         manual_override_at = NULL,
@@ -1322,12 +1478,135 @@ function restoreProjectAdRelevanceToMr04(db, {
     WHERE id = ?
   `).run(
     mappedStatus,
+    hasMr05Decision ? 'MR05' : 'MR04',
     now,
     existing.id,
   );
 
   const updated = getProjectAdRelevanceRow(db, projectId, normalizedArchiveId);
   return mapProjectAdRelevanceRow(updated);
+}
+
+function restoreProjectRelevanceOverridesToMr04(db, projectId) {
+  const now = new Date().toISOString();
+  const result = db.prepare(`
+    UPDATE project_ad_relevance
+    SET relevance_status = 'UNREVIEWED',
+        relevance_source = 'MR04',
+        last_classifier = 'MR04',
+        mr04_decision = NULL,
+        mr04_confidence = NULL,
+        mr04_reason_code = NULL,
+        mr04_reason = NULL,
+        mr04_filter_version = NULL,
+        mr04_checked_at = NULL,
+        mr05_decision = NULL,
+        mr05_confidence = NULL,
+        mr05_reason_code = NULL,
+        mr05_reason = NULL,
+        mr05_filter_version = NULL,
+        mr05_checked_at = NULL,
+        manual_override = 0,
+        manual_override_status = NULL,
+        manual_override_at = NULL,
+        updated_at = ?
+    WHERE project_id = ?
+      AND (
+        relevance_status != 'UNREVIEWED'
+        OR manual_override = 1
+        OR mr04_decision IS NOT NULL
+        OR mr04_confidence IS NOT NULL
+        OR mr04_reason_code IS NOT NULL
+        OR mr04_reason IS NOT NULL
+        OR mr04_filter_version IS NOT NULL
+        OR mr04_checked_at IS NOT NULL
+        OR mr05_decision IS NOT NULL
+        OR mr05_confidence IS NOT NULL
+        OR mr05_reason_code IS NOT NULL
+        OR mr05_reason IS NOT NULL
+        OR mr05_filter_version IS NOT NULL
+        OR mr05_checked_at IS NOT NULL
+      )
+  `).run(now, projectId);
+
+  return result.changes;
+}
+
+function getProjectRelevanceResetCount(db, projectId) {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count_rows
+    FROM project_ad_relevance
+    WHERE project_id = ?
+      AND (
+        relevance_status != 'UNREVIEWED'
+        OR manual_override = 1
+        OR mr04_decision IS NOT NULL
+        OR mr04_confidence IS NOT NULL
+        OR mr04_reason_code IS NOT NULL
+        OR mr04_reason IS NOT NULL
+        OR mr04_filter_version IS NOT NULL
+        OR mr04_checked_at IS NOT NULL
+        OR mr05_decision IS NOT NULL
+        OR mr05_confidence IS NOT NULL
+        OR mr05_reason_code IS NOT NULL
+        OR mr05_reason IS NOT NULL
+        OR mr05_filter_version IS NOT NULL
+        OR mr05_checked_at IS NOT NULL
+      )
+  `).get(projectId);
+
+  return Number(row?.count_rows) || 0;
+}
+
+function restoreProjectRelevanceBatch(db, projectId, limit = 250) {
+  const now = new Date().toISOString();
+  const safeLimit = Math.max(1, Math.min(1000, Number.parseInt(String(limit), 10) || 250));
+  const result = db.prepare(`
+    UPDATE project_ad_relevance
+    SET relevance_status = 'UNREVIEWED',
+        relevance_source = 'MR04',
+        last_classifier = 'MR04',
+        mr04_decision = NULL,
+        mr04_confidence = NULL,
+        mr04_reason_code = NULL,
+        mr04_reason = NULL,
+        mr04_filter_version = NULL,
+        mr04_checked_at = NULL,
+        mr05_decision = NULL,
+        mr05_confidence = NULL,
+        mr05_reason_code = NULL,
+        mr05_reason = NULL,
+        mr05_filter_version = NULL,
+        mr05_checked_at = NULL,
+        manual_override = 0,
+        manual_override_status = NULL,
+        manual_override_at = NULL,
+        updated_at = ?
+    WHERE id IN (
+      SELECT id
+      FROM project_ad_relevance
+      WHERE project_id = ?
+        AND (
+          relevance_status != 'UNREVIEWED'
+          OR manual_override = 1
+          OR mr04_decision IS NOT NULL
+          OR mr04_confidence IS NOT NULL
+          OR mr04_reason_code IS NOT NULL
+          OR mr04_reason IS NOT NULL
+          OR mr04_filter_version IS NOT NULL
+          OR mr04_checked_at IS NOT NULL
+          OR mr05_decision IS NOT NULL
+          OR mr05_confidence IS NOT NULL
+          OR mr05_reason_code IS NOT NULL
+          OR mr05_reason IS NOT NULL
+          OR mr05_filter_version IS NOT NULL
+          OR mr05_checked_at IS NOT NULL
+        )
+      LIMIT ?
+    )
+  `).run(now, projectId, safeLimit);
+
+  return result.changes;
 }
 
 function getProjectAdsEligibleForDetails(db, projectId, {
@@ -1758,18 +2037,18 @@ function buildOrderClause(sortBy, sortDirection) {
 
   switch (sortBy) {
     case 'lifecycle':
-      return ` ORDER BY longevity_rank ${dir}, ma.runtime_days DESC, ma.updated_at DESC `;
+      return ` ORDER BY longevity_rank ${dir}, ma.runtime_days DESC, ma.updated_at DESC, ma.meta_ad_id ASC `;
     case 'duration':
-      return ` ORDER BY COALESCE(ma.runtime_days, 0) ${dir}, ma.updated_at DESC `;
+      return ` ORDER BY COALESCE(ma.runtime_days, 0) ${dir}, ma.updated_at DESC, ma.meta_ad_id ASC `;
     case 'reach':
-      return ` ORDER BY COALESCE(ma.page_like_count, 0) ${dir}, ma.updated_at DESC `;
+      return ` ORDER BY COALESCE(ma.eu_total_reach, 0) ${dir}, ma.updated_at DESC, ma.meta_ad_id ASC `;
     case 'start':
-      return ` ORDER BY ma.start_date ${dir}, ma.updated_at DESC `;
+      return ` ORDER BY ma.start_date ${dir}, ma.updated_at DESC, ma.meta_ad_id ASC `;
     case 'firstSeen':
-      return ` ORDER BY ma.created_at ${dir}, ma.updated_at DESC `;
+      return ` ORDER BY ma.created_at ${dir}, ma.updated_at DESC, ma.meta_ad_id ASC `;
     case 'lastSeen':
     default:
-      return ` ORDER BY ma.updated_at ${dir} `;
+      return ` ORDER BY ma.updated_at ${dir}, ma.meta_ad_id ASC `;
   }
 }
 
@@ -1846,7 +2125,7 @@ function buildResearchAdsFilterQuery(projectId, runId, filters = {}, {
   if (filters.minReach != null && filters.minReach !== '') {
     const minReach = Number(filters.minReach);
     if (Number.isFinite(minReach)) {
-      where.push('COALESCE(ma.page_like_count, 0) >= ?');
+      where.push('COALESCE(ma.eu_total_reach, 0) >= ?');
       params.push(minReach);
     }
   }
@@ -1891,7 +2170,247 @@ function buildResearchAdsFilterQuery(projectId, runId, filters = {}, {
   return { where, params };
 }
 
-function getResearchRunAds(db, runId, filters = {}) {
+function appendOfferFamilyFilters(where, params, filters = {}) {
+  const familyClass = normalizeFamilyClassFilter(filters.familyClass || 'ALL');
+  const familyStatus = normalizeFamilyStatusFilter(filters.familyStatus || 'ALL');
+  const familyPattern = normalizeFamilyPatternFilter(filters.familyPattern || 'ALL');
+
+  if (familyClass !== 'ALL') {
+    where.push("COALESCE(ofm.family_class, 'UNCLASSIFIED') = ?");
+    params.push(familyClass);
+  }
+
+  if (familyStatus !== 'ALL') {
+    where.push("COALESCE(ofm.family_status, 'UNKNOWN') = ?");
+    params.push(familyStatus);
+  }
+
+  if (familyPattern !== 'ALL') {
+    where.push(`EXISTS (
+      SELECT 1
+      FROM json_each(COALESCE(ofm.family_patterns_json, '[]')) AS family_pattern
+      WHERE family_pattern.value = ?
+    )`);
+    params.push(familyPattern);
+  }
+}
+
+function buildResearchAdJoins() {
+  return `
+    FROM meta_ads ma
+    JOIN meta_ad_query_matches maqm ON maqm.meta_ad_id = ma.meta_ad_id
+    LEFT JOIN project_ad_relevance par ON par.meta_ad_id = ma.meta_ad_id AND par.project_id = ?
+    LEFT JOIN offer_family_ads ofa ON ofa.meta_ad_id = ma.meta_ad_id AND ofa.project_id = ?
+    LEFT JOIN offer_families ofm ON ofm.id = ofa.offer_family_id
+    LEFT JOIN meta_query_run_variants mqrv ON mqrv.query_run_id = maqm.query_run_id
+  `;
+}
+
+function mapResearchAdRow(row, { includeHeavy = false } = {}) {
+  const matchedQueries = row.matched_queries
+    ? row.matched_queries.split(',').map(item => item.trim()).filter(Boolean)
+    : [];
+  const matchedCategories = row.matched_categories
+    ? row.matched_categories.split(',').map(item => item.trim()).filter(Boolean)
+    : [];
+  const matchedSeeds = row.matched_seeds
+    ? row.matched_seeds.split(',').map(item => item.trim()).filter(Boolean)
+    : [];
+  const lifecycleReasons = safeJsonParse(row.lifecycle_reasons_json, []);
+
+  const mapped = {
+    metaAdId: row.meta_ad_id,
+    adArchiveId: row.ad_archive_id,
+    pageId: row.page_id,
+    pageName: row.page_name,
+    pageProfileUrl: row.page_profile_url,
+    bodyText: row.body_text,
+    title: row.title,
+    displayFormat: row.display_format,
+    ctaType: row.cta_type,
+    ctaText: row.cta_text,
+    destinationUrl: row.destination_url,
+    canonicalUrl: row.canonical_destination_url,
+    destinationDomain: row.destination_domain,
+    destinationPath: row.destination_path,
+    collationId: row.collation_id,
+    collationCount: row.collation_count,
+    adLibraryUrl: row.ad_library_url,
+    adSnapshotUrl: row.ad_snapshot_url,
+    isActive: row.is_active === 1,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    adDeliveryStartTime: row.ad_delivery_start_time,
+    adDeliveryStopTime: row.ad_delivery_stop_time,
+    publisherPlatforms: safeJsonParse(row.publisher_platforms, []),
+    pageCategories: safeJsonParse(row.page_categories, []),
+    pageLikeCount: row.page_like_count,
+    euTotalReach: row.eu_total_reach,
+    adsCount: row.ads_count,
+    runtimeDays: row.runtime_days,
+    longevityCategory: row.longevity_category,
+    firstSeenAt: row.created_at || row.first_seen_at,
+    lastSeenAt: row.updated_at || row.last_seen_at,
+    lifecycleClass: row.longevity_category || row.lifecycle_class,
+    lifecycleConfidence: row.lifecycle_confidence,
+    lifecycleReasons: Array.isArray(lifecycleReasons) ? lifecycleReasons : [],
+    relevanceStatus: normalizeRelevanceStatus(row.relevance_status),
+    relevanceSource: row.relevance_source || 'MR04',
+    lastClassifier: row.last_classifier || 'MR04',
+    manualOverride: row.manual_override === 1,
+    manualOverrideStatus: row.manual_override_status || null,
+    manualOverrideAt: row.manual_override_at || null,
+    mr04Decision: row.mr04_decision || null,
+    mr04Confidence: Number.isFinite(Number(row.mr04_confidence)) ? Number(row.mr04_confidence) : null,
+    mr04ReasonCode: row.mr04_reason_code || null,
+    mr04Reason: row.mr04_reason || null,
+    mr04FilterVersion: row.mr04_filter_version || null,
+    mr04CheckedAt: row.mr04_checked_at || null,
+    mr05Decision: row.mr05_decision || null,
+    mr05Confidence: Number.isFinite(Number(row.mr05_confidence)) ? Number(row.mr05_confidence) : null,
+    mr05ReasonCode: row.mr05_reason_code || null,
+    mr05Reason: row.mr05_reason || null,
+    mr05FilterVersion: row.mr05_filter_version || null,
+    mr05CheckedAt: row.mr05_checked_at || null,
+    detailsStatus: normalizeDetailsStatus(row.details_status),
+    detailsFetchedAt: row.details_fetched_at || null,
+    detailsProvider: row.details_provider || null,
+    detailsError: row.details_error || null,
+    familyId: row.family_id || null,
+    familyClass: row.family_class || 'UNCLASSIFIED',
+    familyStatus: row.family_status || 'UNKNOWN',
+    familyConfidence: Number.isFinite(Number(row.family_confidence)) ? Number(row.family_confidence) : null,
+    familyReason: row.family_reason || null,
+    familyCalendarSpanDays: Number.isFinite(Number(row.family_calendar_span_days)) ? Number(row.family_calendar_span_days) : 0,
+    familyCoveredDeliveryDays: Number.isFinite(Number(row.covered_delivery_days)) ? Number(row.covered_delivery_days) : 0,
+    familyAdsCount: Number.isFinite(Number(row.family_ads_count)) ? Number(row.family_ads_count) : 0,
+    familyActiveAdsCount: Number.isFinite(Number(row.family_active_ads_count)) ? Number(row.family_active_ads_count) : 0,
+    familyPatterns: safeJsonParse(row.family_patterns_json, []),
+    relationshipToPrevious: row.relationship_to_previous || null,
+    previousAdId: row.previous_ad_id || null,
+    offerMatchConfidence: Number.isFinite(Number(row.offer_match_confidence)) ? Number(row.offer_match_confidence) : null,
+    offerMatchReasons: safeJsonParse(row.offer_match_reasons_json, []),
+    familySortOrder: Number.isFinite(Number(row.family_sort_order)) ? Number(row.family_sort_order) : null,
+    visibleTextMatch: row.visible_text_match == null ? null : row.visible_text_match === 1,
+    matchedQueries,
+    matchedCategories,
+    matchedSeeds,
+    creativeBodies: safeJsonParse(row.creative_bodies_json, []),
+    creativeLinkTitles: safeJsonParse(row.creative_link_titles_json, []),
+    creativeLinkDescriptions: safeJsonParse(row.creative_link_descriptions_json, []),
+  };
+
+  if (includeHeavy) {
+    mapped.detailsJson = safeJsonParse(row.details_json, null);
+    mapped.rawJson = safeJsonParse(row.raw_json || row.latest_raw_json, {});
+  }
+
+  return mapped;
+}
+
+const RESEARCH_AD_SELECT = `
+  ma.meta_ad_id,
+  ma.ad_archive_id,
+  ma.page_id,
+  ma.page_name,
+  ma.page_profile_url,
+  ma.body_text,
+  ma.title,
+  ma.display_format,
+  ma.cta_type,
+  ma.cta_text,
+  ma.destination_url,
+  ma.canonical_destination_url,
+  ma.destination_domain,
+  ma.destination_path,
+  ma.collation_id,
+  ma.collation_count,
+  ma.ad_library_url,
+  ma.ad_snapshot_url,
+  ma.is_active,
+  ma.start_date,
+  ma.end_date,
+  ma.ad_delivery_start_time,
+  ma.ad_delivery_stop_time,
+  ma.publisher_platforms,
+  ma.page_categories,
+  ma.page_like_count,
+  ma.eu_total_reach,
+  ma.ads_count,
+  ma.runtime_days,
+  ma.longevity_category,
+  ma.created_at,
+  ma.updated_at,
+  ma.first_seen_at,
+  ma.last_seen_at,
+  ma.lifecycle_class,
+  ma.lifecycle_confidence,
+  ma.lifecycle_reasons_json,
+  ma.creative_bodies_json,
+  ma.creative_link_titles_json,
+  ma.creative_link_descriptions_json,
+  par.relevance_status,
+  par.relevance_source,
+  par.last_classifier,
+  par.manual_override,
+  par.manual_override_status,
+  par.manual_override_at,
+  par.mr04_decision,
+  par.mr04_confidence,
+  par.mr04_reason_code,
+  par.mr04_reason,
+  par.mr04_filter_version,
+  par.mr04_checked_at,
+  par.mr05_decision,
+  par.mr05_confidence,
+  par.mr05_reason_code,
+  par.mr05_reason,
+  par.mr05_filter_version,
+  par.mr05_checked_at,
+  par.details_status,
+  par.details_fetched_at,
+  par.details_provider,
+  par.details_error,
+  ofm.id AS family_id,
+  ofm.family_class,
+  ofm.family_status,
+  ofm.family_confidence,
+  ofm.family_reason,
+  ofm.family_calendar_span_days,
+  ofm.covered_delivery_days,
+  ofm.ads_count AS family_ads_count,
+  ofm.active_ads_count AS family_active_ads_count,
+  ofm.family_patterns_json,
+  ofa.relationship_type AS relationship_to_previous,
+  ofa.previous_ad_id,
+  ofa.offer_match_confidence,
+  ofa.match_reasons_json AS offer_match_reasons_json,
+  ofa.sort_order AS family_sort_order,
+  CASE COALESCE(ma.longevity_category, 'BALON_PROBNY')
+    WHEN 'BALON_PROBNY' THEN ${LONGEVITY_ORDER.BALON_PROBNY}
+    WHEN 'TEST_W_TOKU' THEN ${LONGEVITY_ORDER.TEST_W_TOKU}
+    WHEN 'ROKUJACA' THEN ${LONGEVITY_ORDER.ROKUJACA}
+    WHEN 'MOCNA' THEN ${LONGEVITY_ORDER.MOCNA}
+    WHEN 'EVERGREEN' THEN ${LONGEVITY_ORDER.EVERGREEN}
+    ELSE 0
+  END AS longevity_rank,
+  CASE WHEN EXISTS (
+    SELECT 1
+    FROM meta_search_hits visible_hit
+    JOIN meta_query_runs visible_run ON visible_run.id = visible_hit.query_run_id
+    WHERE visible_run.research_run_id = maqm.research_run_id
+      AND visible_hit.meta_ad_id = ma.meta_ad_id
+      AND visible_hit.visible_text_match = 1
+  ) THEN 1 ELSE 0 END AS visible_text_match,
+  GROUP_CONCAT(DISTINCT maqm.query_text) AS matched_queries,
+  GROUP_CONCAT(DISTINCT COALESCE(maqm.query_category, 'CORE')) AS matched_categories,
+  GROUP_CONCAT(DISTINCT COALESCE(mqrv.seed_text, '')) AS matched_seeds
+`;
+
+function getResearchRunAds(db, runId, filters = {}, {
+  limit = 500,
+  offset = 0,
+} = {}) {
   const runRow = db.prepare(`
     SELECT project_id
     FROM meta_research_runs
@@ -1904,183 +2423,70 @@ function getResearchRunAds(db, runId, filters = {}) {
   }
 
   const { where, params } = buildResearchAdsFilterQuery(runRow.project_id, runId, filters);
+  appendOfferFamilyFilters(where, params, filters);
   const queryParams = [runRow.project_id, runRow.project_id, ...params.slice(1)];
-
+  const safeLimit = Math.max(1, Math.min(1000, Number.parseInt(String(limit), 10) || 500));
+  const safeOffset = Math.max(0, Number.parseInt(String(offset), 10) || 0);
   const orderClause = buildOrderClause(filters.sortBy, filters.sortDirection);
 
   const rows = db.prepare(`
-    SELECT
-      ma.*,
-      ma.canonical_destination_url,
-      ma.destination_domain,
-      ma.destination_path,
-      ma.collation_id,
-      ma.collation_count,
-      par.relevance_status,
-      par.relevance_source,
-      par.manual_override,
-      par.manual_override_status,
-      par.manual_override_at,
-      par.mr04_decision,
-      par.mr04_confidence,
-      par.mr04_reason_code,
-      par.mr04_reason,
-      par.mr04_filter_version,
-      par.mr04_checked_at,
-      par.details_status,
-      par.details_fetched_at,
-      par.details_provider,
-      par.details_error,
-      par.details_json,
-      ofm.id AS family_id,
-      ofm.family_class,
-      ofm.family_status,
-      ofm.family_confidence,
-      ofm.family_reason,
-      ofm.family_calendar_span_days,
-      ofm.covered_delivery_days,
-      ofm.ads_count AS family_ads_count,
-      ofm.active_ads_count AS family_active_ads_count,
-      ofm.family_patterns_json,
-      ofa.relationship_type AS relationship_to_previous,
-      ofa.previous_ad_id AS previous_ad_id,
-      ofa.offer_match_confidence AS offer_match_confidence,
-      ofa.match_reasons_json AS offer_match_reasons_json,
-      ofa.sort_order AS family_sort_order,
-      CASE COALESCE(ma.longevity_category, 'BALON_PROBNY')
-        WHEN 'BALON_PROBNY' THEN ${LONGEVITY_ORDER.BALON_PROBNY}
-        WHEN 'TEST_W_TOKU' THEN ${LONGEVITY_ORDER.TEST_W_TOKU}
-        WHEN 'ROKUJACA' THEN ${LONGEVITY_ORDER.ROKUJACA}
-        WHEN 'MOCNA' THEN ${LONGEVITY_ORDER.MOCNA}
-        WHEN 'EVERGREEN' THEN ${LONGEVITY_ORDER.EVERGREEN}
-        ELSE 0
-      END AS longevity_rank,
-      GROUP_CONCAT(DISTINCT maqm.query_text) AS matched_queries,
-      GROUP_CONCAT(DISTINCT COALESCE(maqm.query_category, 'CORE')) AS matched_categories,
-      GROUP_CONCAT(DISTINCT COALESCE(mqrv.seed_text, '')) AS matched_seeds
-    FROM meta_ads ma
-    JOIN meta_ad_query_matches maqm ON maqm.meta_ad_id = ma.meta_ad_id
-    LEFT JOIN project_ad_relevance par ON par.meta_ad_id = ma.meta_ad_id AND par.project_id = ?
-    LEFT JOIN offer_family_ads ofa ON ofa.meta_ad_id = ma.meta_ad_id AND ofa.project_id = ?
-    LEFT JOIN offer_families ofm ON ofm.id = ofa.offer_family_id
-    LEFT JOIN meta_query_run_variants mqrv ON mqrv.query_run_id = maqm.query_run_id
+    SELECT ${RESEARCH_AD_SELECT}
+    ${buildResearchAdJoins()}
     WHERE ${where.join(' AND ')}
     GROUP BY ma.meta_ad_id
     ${orderClause}
-    LIMIT 500
-  `).all(...queryParams);
+    LIMIT ? OFFSET ?
+  `).all(...queryParams, safeLimit, safeOffset);
 
-  const normalizedFamilyClass = normalizeFamilyClassFilter(filters.familyClass || 'ALL');
-  const normalizedFamilyStatus = normalizeFamilyStatusFilter(filters.familyStatus || 'ALL');
-  const normalizedFamilyPattern = normalizeFamilyPatternFilter(filters.familyPattern || 'ALL');
+  return rows.map(row => mapResearchAdRow(row));
+}
 
-  const filteredRows = rows.filter(row => {
-    if (normalizedFamilyClass !== 'ALL' && String(row.family_class || 'UNCLASSIFIED') !== normalizedFamilyClass) {
-      return false;
-    }
+function countResearchRunAds(db, runId, filters = {}) {
+  const runRow = db.prepare(`
+    SELECT project_id
+    FROM meta_research_runs
+    WHERE id = ?
+    LIMIT 1
+  `).get(runId);
 
-    if (normalizedFamilyStatus !== 'ALL' && String(row.family_status || 'UNKNOWN') !== normalizedFamilyStatus) {
-      return false;
-    }
+  if (!runRow) return 0;
 
-    if (normalizedFamilyPattern !== 'ALL') {
-      const patterns = safeJsonParse(row.family_patterns_json, []);
-      if (!Array.isArray(patterns) || !patterns.includes(normalizedFamilyPattern)) {
-        return false;
-      }
-    }
+  const { where, params } = buildResearchAdsFilterQuery(runRow.project_id, runId, filters);
+  appendOfferFamilyFilters(where, params, filters);
+  const queryParams = [runRow.project_id, runRow.project_id, ...params.slice(1)];
 
-    return true;
-  });
+  const row = db.prepare(`
+    SELECT COUNT(DISTINCT ma.meta_ad_id) AS count_ads
+    ${buildResearchAdJoins()}
+    WHERE ${where.join(' AND ')}
+  `).get(...queryParams);
 
-  return filteredRows.map(row => {
-    const matchedQueries = row.matched_queries
-      ? row.matched_queries.split(',').map(item => item.trim()).filter(Boolean)
-      : [];
+  return Number(row?.count_ads) || 0;
+}
 
-    const matchedCategories = row.matched_categories
-      ? row.matched_categories.split(',').map(item => item.trim()).filter(Boolean)
-      : [];
+function getProjectAdDetails(db, projectId, adArchiveId) {
+  const normalizedArchiveId = String(adArchiveId || '').trim();
+  if (!normalizedArchiveId) return null;
 
-    const matchedSeeds = row.matched_seeds
-      ? row.matched_seeds.split(',').map(item => item.trim()).filter(Boolean)
-      : [];
+  const row = db.prepare(`
+    SELECT
+      ${RESEARCH_AD_SELECT},
+      par.details_json,
+      ma.raw_json,
+      ma.latest_raw_json
+    ${buildResearchAdJoins()}
+    WHERE par.project_id = ?
+      AND COALESCE(ma.ad_archive_id, ma.meta_ad_id) = ?
+      AND maqm.research_run_id IN (
+        SELECT id
+        FROM meta_research_runs
+        WHERE project_id = ?
+      )
+    GROUP BY ma.meta_ad_id
+    LIMIT 1
+  `).get(projectId, projectId, projectId, normalizedArchiveId, projectId);
 
-    const lifecycleReasons = safeJsonParse(row.lifecycle_reasons_json, []);
-
-    return {
-      metaAdId: row.meta_ad_id,
-      adArchiveId: row.ad_archive_id,
-      pageId: row.page_id,
-      pageName: row.page_name,
-      pageProfileUrl: row.page_profile_url,
-      bodyText: row.body_text,
-      title: row.title,
-      displayFormat: row.display_format,
-      ctaType: row.cta_type,
-      ctaText: row.cta_text,
-      destinationUrl: row.destination_url,
-      canonicalUrl: row.canonical_destination_url,
-      destinationDomain: row.destination_domain,
-      destinationPath: row.destination_path,
-      collationId: row.collation_id,
-      collationCount: row.collation_count,
-      adLibraryUrl: row.ad_library_url,
-      isActive: row.is_active === 1,
-      startDate: row.start_date,
-      endDate: row.end_date,
-      publisherPlatforms: safeJsonParse(row.publisher_platforms, []),
-      pageCategories: safeJsonParse(row.page_categories, []),
-      pageLikeCount: row.page_like_count,
-      adsCount: row.ads_count,
-      runtimeDays: row.runtime_days,
-      longevityCategory: row.longevity_category,
-      firstSeenAt: row.created_at || row.first_seen_at,
-      lastSeenAt: row.updated_at || row.last_seen_at,
-      lifecycleClass: row.longevity_category,
-      lifecycleConfidence: row.lifecycle_confidence,
-      lifecycleReasons: Array.isArray(lifecycleReasons) ? lifecycleReasons : [],
-      relevanceStatus: normalizeRelevanceStatus(row.relevance_status),
-      relevanceSource: row.relevance_source || 'MR04',
-      manualOverride: row.manual_override === 1,
-      manualOverrideStatus: row.manual_override_status || null,
-      manualOverrideAt: row.manual_override_at || null,
-      mr04Decision: row.mr04_decision || null,
-      mr04Confidence: Number.isFinite(Number(row.mr04_confidence)) ? Number(row.mr04_confidence) : null,
-      mr04ReasonCode: row.mr04_reason_code || null,
-      mr04Reason: row.mr04_reason || null,
-      mr04FilterVersion: row.mr04_filter_version || null,
-      mr04CheckedAt: row.mr04_checked_at || null,
-      detailsStatus: normalizeDetailsStatus(row.details_status),
-      detailsFetchedAt: row.details_fetched_at || null,
-      detailsProvider: row.details_provider || null,
-      detailsError: row.details_error || null,
-      detailsJson: safeJsonParse(row.details_json, null),
-      familyId: row.family_id || null,
-      familyClass: row.family_class || 'UNCLASSIFIED',
-      familyStatus: row.family_status || 'UNKNOWN',
-      familyConfidence: Number.isFinite(Number(row.family_confidence)) ? Number(row.family_confidence) : null,
-      familyReason: row.family_reason || null,
-      familyCalendarSpanDays: Number.isFinite(Number(row.family_calendar_span_days)) ? Number(row.family_calendar_span_days) : 0,
-      familyCoveredDeliveryDays: Number.isFinite(Number(row.covered_delivery_days)) ? Number(row.covered_delivery_days) : 0,
-      familyAdsCount: Number.isFinite(Number(row.family_ads_count)) ? Number(row.family_ads_count) : 0,
-      familyActiveAdsCount: Number.isFinite(Number(row.family_active_ads_count)) ? Number(row.family_active_ads_count) : 0,
-      familyPatterns: safeJsonParse(row.family_patterns_json, []),
-      relationshipToPrevious: row.relationship_to_previous || null,
-      previousAdId: row.previous_ad_id || null,
-      offerMatchConfidence: Number.isFinite(Number(row.offer_match_confidence)) ? Number(row.offer_match_confidence) : null,
-      offerMatchReasons: safeJsonParse(row.offer_match_reasons_json, []),
-      familySortOrder: Number.isFinite(Number(row.family_sort_order)) ? Number(row.family_sort_order) : null,
-      visibleTextMatch: null,
-      matchedQueries,
-      matchedCategories,
-      matchedSeeds,
-      creativeBodies: safeJsonParse(row.creative_bodies_json, []),
-      creativeLinkTitles: safeJsonParse(row.creative_link_titles_json, []),
-      creativeLinkDescriptions: safeJsonParse(row.creative_link_descriptions_json, []),
-      rawJson: safeJsonParse(row.raw_json || row.latest_raw_json, {}),
-    };
-  });
+  return row ? mapResearchAdRow(row, { includeHeavy: true }) : null;
 }
 
 function getResearchRunLifecycleSummary(db, runId, filters = {}) {
@@ -2107,6 +2513,7 @@ function getResearchRunLifecycleSummary(db, runId, filters = {}) {
   const { where, params } = buildResearchAdsFilterQuery(runRow.project_id, runId, filters, {
     includeLifecycle: false,
   });
+  appendOfferFamilyFilters(where, params, filters);
 
   const rows = db.prepare(`
     SELECT
@@ -2115,9 +2522,11 @@ function getResearchRunLifecycleSummary(db, runId, filters = {}) {
     FROM meta_ads ma
     JOIN meta_ad_query_matches maqm ON maqm.meta_ad_id = ma.meta_ad_id
     LEFT JOIN project_ad_relevance par ON par.meta_ad_id = ma.meta_ad_id AND par.project_id = ?
+    LEFT JOIN offer_family_ads ofa ON ofa.meta_ad_id = ma.meta_ad_id AND ofa.project_id = ?
+    LEFT JOIN offer_families ofm ON ofm.id = ofa.offer_family_id
     WHERE ${where.join(' AND ')}
     GROUP BY COALESCE(ma.longevity_category, 'BALON_PROBNY')
-  `).all(...params);
+  `).all(runRow.project_id, runRow.project_id, ...params.slice(1));
 
   const summary = {
     ...empty,
@@ -2679,6 +3088,8 @@ module.exports = {
   getResearchRunWithQueryRuns,
   getLatestResearchRunWithQueryRuns,
   getResearchRunAds,
+  countResearchRunAds,
+  getProjectAdDetails,
   getResearchRunRelevanceSummary,
   getResearchRunLifecycleSummary,
   rebuildOfferFamilies,
@@ -2686,10 +3097,16 @@ module.exports = {
   normalizeQueryTextForGrouping,
   ensureProjectAdRelevanceRows,
   getProjectRelevancePendingCount,
+  getProjectMr05PendingCount,
   getProjectAdsForRelevanceReview,
+  getProjectAdsForMr05Review,
   applyMr04Decisions,
+  applyMr05Decisions,
   setProjectAdManualRelevance,
   restoreProjectAdRelevanceToMr04,
+  restoreProjectRelevanceOverridesToMr04,
+  getProjectRelevanceResetCount,
+  restoreProjectRelevanceBatch,
   getProjectAdsEligibleForDetails,
   applyLocalDetailsSnapshot,
 };

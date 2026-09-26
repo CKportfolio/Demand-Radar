@@ -104,9 +104,69 @@ function getProjectWithVersions(db, projectId) {
   };
 }
 
+function deleteProject(db, projectId) {
+  const project = getProjectById(db, projectId);
+  if (!project) return null;
+
+  const remove = db.transaction(() => {
+    db.prepare('DELETE FROM offer_family_ads WHERE project_id = ?').run(projectId);
+    db.prepare('DELETE FROM offer_families WHERE project_id = ?').run(projectId);
+    db.prepare('DELETE FROM project_ad_relevance WHERE project_id = ?').run(projectId);
+    db.prepare(`
+      DELETE FROM meta_search_hits
+      WHERE query_run_id IN (
+        SELECT mqr.id FROM meta_query_runs mqr
+        JOIN meta_research_runs mrr ON mrr.id = mqr.research_run_id
+        WHERE mrr.project_id = ?
+      )
+    `).run(projectId);
+    db.prepare(`
+      DELETE FROM meta_ad_observations
+      WHERE research_run_id IN (SELECT id FROM meta_research_runs WHERE project_id = ?)
+    `).run(projectId);
+    db.prepare(`
+      DELETE FROM meta_ad_query_matches
+      WHERE research_run_id IN (SELECT id FROM meta_research_runs WHERE project_id = ?)
+    `).run(projectId);
+    db.prepare(`
+      DELETE FROM meta_query_run_variants
+      WHERE query_run_id IN (
+        SELECT mqr.id FROM meta_query_runs mqr
+        JOIN meta_research_runs mrr ON mrr.id = mqr.research_run_id
+        WHERE mrr.project_id = ?
+      )
+    `).run(projectId);
+    db.prepare(`
+      DELETE FROM meta_query_runs
+      WHERE research_run_id IN (SELECT id FROM meta_research_runs WHERE project_id = ?)
+    `).run(projectId);
+    db.prepare('DELETE FROM meta_research_runs WHERE project_id = ?').run(projectId);
+    db.prepare(`
+      DELETE FROM query_variants
+      WHERE query_plan_seed_id IN (
+        SELECT qps.id FROM query_plan_seeds qps
+        JOIN query_plans qp ON qp.id = qps.query_plan_id
+        WHERE qp.project_id = ?
+      )
+    `).run(projectId);
+    db.prepare(`
+      DELETE FROM query_plan_seeds
+      WHERE query_plan_id IN (SELECT id FROM query_plans WHERE project_id = ?)
+    `).run(projectId);
+    db.prepare('DELETE FROM query_plans WHERE project_id = ?').run(projectId);
+    db.prepare('UPDATE discovery_plan_versions SET parent_version_id = NULL WHERE project_id = ?').run(projectId);
+    db.prepare('DELETE FROM discovery_plan_versions WHERE project_id = ?').run(projectId);
+    db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+  });
+
+  remove();
+  return project;
+}
+
 module.exports = {
   upsertProject,
   getProjectById,
   listProjects,
   getProjectWithVersions,
+  deleteProject,
 };

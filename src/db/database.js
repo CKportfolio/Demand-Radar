@@ -12,6 +12,11 @@ function initDatabase() {
 
   const db = new Database(DB_PATH);
   db.pragma('foreign_keys = ON');
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('busy_timeout = 5000');
+  db.pragma('temp_store = MEMORY');
+  db.pragma('cache_size = -32768');
 
   runMigrations(db);
 
